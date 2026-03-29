@@ -21,33 +21,17 @@ body {
   color: var(--text);
 }
 
-.topbar {
-  padding: 16px 20px;
-  border-bottom: 1px solid #243244;
-  background: #0b1224;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 1.2rem;
-}
-
-.topbar p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
 .layout {
   display: grid;
   grid-template-columns: 320px 1fr;
-  min-height: calc(100vh - 72px);
+  min-height: 100vh;
 }
 
 .sidebar {
   border-right: 1px solid #243244;
   padding: 14px;
   background: #0b1224;
+  position: relative;
 }
 
 .sidebar h2 {
@@ -56,7 +40,7 @@ body {
 }
 
 .config-editor {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .config-block {
@@ -111,6 +95,20 @@ select {
   font-size: 0.88rem;
 }
 
+.tree-toggle {
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  text-align: left;
+  width: 100%;
+  border-radius: 0;
+}
+
+.tree-toggle:hover {
+  border: none;
+  color: var(--primary);
+}
+
 .project-card {
   padding: 10px;
   border: 1px solid #243244;
@@ -135,6 +133,61 @@ select {
 
 .tree-project {
   margin-left: 22px;
+}
+
+.settings-fab {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-fab svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.hidden {
+  display: none;
+}
+
+.modal-card {
+  width: min(680px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid #243244;
+  border-radius: 12px;
+  background: #0b1224;
+  padding: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.config-meta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .dashboard {

@@ -15,6 +15,26 @@ function getConfigPath() {
   return path.join(os.homedir(), ".config", "dashboard", "config.json");
 }
 
+function getUiStatePath() {
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+    return path.join(appData, "dashboard", "ui-state.json");
+  }
+  return path.join(os.homedir(), ".config", "dashboard", "ui-state.json");
+}
+
+function defaultUiState() {
+  return {
+    configEditorOpen: false,
+    collapsedCustomers: [],
+    collapsedManagers: [],
+    windowBounds: {
+      width: 1400,
+      height: 900,
+    },
+  };
+}
+
 async function ensureConfig(configPath) {
   const dir = path.dirname(configPath);
   await fs.mkdir(dir, { recursive: true });
@@ -40,6 +60,14 @@ async function ensureConfig(configPath) {
   }
 }
 
+async function ensureUiState(uiStatePath) {
+  const dir = path.dirname(uiStatePath);
+  await fs.mkdir(dir, { recursive: true });
+  if (!existsSync(uiStatePath)) {
+    await fs.writeFile(uiStatePath, JSON.stringify(defaultUiState(), null, 2), "utf8");
+  }
+}
+
 async function loadConfig() {
   const configPath = getConfigPath();
   await ensureConfig(configPath);
@@ -49,6 +77,42 @@ async function loadConfig() {
     throw new Error("Konfiguration ungueltig: 'customers' fehlt oder ist kein Array.");
   }
   return { configPath, config: parsed };
+}
+
+function normalizeUiState(input) {
+  const defaults = defaultUiState();
+  const source = input && typeof input === "object" ? input : {};
+  const width = Number(source?.windowBounds?.width);
+  const height = Number(source?.windowBounds?.height);
+
+  return {
+    configEditorOpen:
+      typeof source.configEditorOpen === "boolean" ? source.configEditorOpen : defaults.configEditorOpen,
+    collapsedCustomers: Array.isArray(source.collapsedCustomers)
+      ? source.collapsedCustomers.map(String)
+      : defaults.collapsedCustomers,
+    collapsedManagers: Array.isArray(source.collapsedManagers)
+      ? source.collapsedManagers.map(String)
+      : defaults.collapsedManagers,
+    windowBounds: {
+      width: Number.isFinite(width) && width >= 900 ? width : defaults.windowBounds.width,
+      height: Number.isFinite(height) && height >= 600 ? height : defaults.windowBounds.height,
+    },
+  };
+}
+
+async function loadUiState() {
+  const uiStatePath = getUiStatePath();
+  await ensureUiState(uiStatePath);
+  const raw = await fs.readFile(uiStatePath, "utf8");
+  return { uiStatePath, uiState: normalizeUiState(JSON.parse(raw)) };
+}
+
+async function saveUiState(uiState) {
+  const { uiStatePath } = await loadUiState();
+  const normalized = normalizeUiState(uiState);
+  await fs.writeFile(uiStatePath, JSON.stringify(normalized, null, 2), "utf8");
+  return { ok: true, uiStatePath, uiState: normalized };
 }
 
 function normalizeConfig(input) {
@@ -277,10 +341,34 @@ function openProgram(projectPath, program) {
   return Promise.reject(new Error(`Unbekanntes Programm: ${program}`));
 }
 
-function createWindow() {
+let windowStateSaveTimer = null;
+
+function scheduleWindowStateSave(win) {
+  if (windowStateSaveTimer) {
+    clearTimeout(windowStateSaveTimer);
+  }
+  windowStateSaveTimer = setTimeout(async () => {
+    try {
+      const bounds = win.getBounds();
+      const currentUiState = (await loadUiState()).uiState;
+      await saveUiState({
+        ...currentUiState,
+        windowBounds: {
+          width: bounds.width,
+          height: bounds.height,
+        },
+      });
+    } catch (_error) {
+      // Ignore state write failures to avoid blocking app usage.
+    }
+  }, 250);
+}
+
+async function createWindow() {
+  const { uiState } = await loadUiState();
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: uiState.windowBounds.width,
+    height: uiState.windowBounds.height,
     minWidth: 1100,
     minHeight: 700,
     webPreferences: {
@@ -291,6 +379,8 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  win.on("resize", () => scheduleWindowStateSave(win));
+  win.on("close", () => scheduleWindowStateSave(win));
 }
 
 ipcMain.handle("config:get", async () => {
@@ -304,6 +394,22 @@ ipcMain.handle("config:get", async () => {
 ipcMain.handle("config:save", async (_event, config) => {
   try {
     return await saveConfig(config);
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("ui-state:get", async () => {
+  try {
+    return { ok: true, ...(await loadUiState()) };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("ui-state:save", async (_event, uiState) => {
+  try {
+    return await saveUiState(uiState);
   } catch (error) {
     return { ok: false, error: error.message };
   }
@@ -394,8 +500,8 @@ ipcMain.handle("ssh:open", async (_event, { projectPath, host, username }) => {
   }
 });
 
-app.whenReady().then(() => {
-  createWindow();
+app.whenReady().then(async () => {
+  await createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

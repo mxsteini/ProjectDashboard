@@ -4,6 +4,13 @@ const state = {
   selectedProjectEntry: null,
   selectedRef: "",
   projectData: null,
+  uiState: {
+    configEditorOpen: false,
+    collapsedCustomers: [],
+    collapsedManagers: [],
+  },
+  collapsedCustomers: new Set(),
+  collapsedManagers: new Set(),
 };
 
 const el = {
@@ -11,6 +18,9 @@ const el = {
   projectList: document.getElementById("projectList"),
   dashboard: document.getElementById("dashboard"),
   configEditor: document.getElementById("configEditor"),
+  configModal: document.getElementById("configModal"),
+  openConfigModalBtn: document.getElementById("openConfigModalBtn"),
+  closeConfigModalBtn: document.getElementById("closeConfigModalBtn"),
 };
 
 function escapeHtml(text) {
@@ -128,8 +138,7 @@ function renderConfigEditor() {
   const firstManager = state.config.customers[0]?.projectManagers?.[0]?.name || "";
 
   el.configEditor.innerHTML = `
-    <details open class="config-block">
-      <summary>Basiskonfiguration</summary>
+    <div class="config-block">
       <div class="config-form">
         <label>Kontext (Kunde und Projektmanager)</label>
         <select id="customerSelect">${customerOptions(firstCustomer)}</select>
@@ -154,10 +163,32 @@ function renderConfigEditor() {
 
         <p id="configMessage" class="meta">Struktur: Kunde -> Projektmanager -> Projekt</p>
       </div>
-    </details>
+    </div>
   `;
 
   bindConfigEditorEvents();
+}
+
+async function openConfigModal() {
+  el.configModal.classList.remove("hidden");
+  state.uiState.configEditorOpen = true;
+  await persistUiState();
+}
+
+async function closeConfigModal() {
+  el.configModal.classList.add("hidden");
+  state.uiState.configEditorOpen = false;
+  await persistUiState();
+}
+
+function bindModalEvents() {
+  el.openConfigModalBtn.addEventListener("click", () => openConfigModal());
+  el.closeConfigModalBtn.addEventListener("click", () => closeConfigModal());
+  el.configModal.addEventListener("click", (event) => {
+    if (event.target === el.configModal) {
+      closeConfigModal();
+    }
+  });
 }
 
 function renderProjectList() {
@@ -169,9 +200,29 @@ function renderProjectList() {
 
   const treeParts = [];
   for (const customer of state.config.customers) {
-    treeParts.push(`<div class="tree-customer">${escapeHtml(customer.name)}</div>`);
+    const customerKey = customer.name;
+    const customerCollapsed = state.collapsedCustomers.has(customerKey);
+    treeParts.push(`
+      <button class="tree-toggle tree-customer" data-tree-toggle="customer" data-key="${escapeHtml(customerKey)}">
+        ${customerCollapsed ? "▸" : "▾"} ${escapeHtml(customer.name)}
+      </button>
+    `);
+    if (customerCollapsed) {
+      continue;
+    }
+
     for (const manager of customer.projectManagers || []) {
-      treeParts.push(`<div class="tree-manager">└ ${escapeHtml(manager.name)}</div>`);
+      const managerKey = `${customer.name}::${manager.name}`;
+      const managerCollapsed = state.collapsedManagers.has(managerKey);
+      treeParts.push(`
+        <button class="tree-toggle tree-manager" data-tree-toggle="manager" data-key="${escapeHtml(managerKey)}">
+          ${managerCollapsed ? "▸" : "▾"} ${escapeHtml(manager.name)}
+        </button>
+      `);
+      if (managerCollapsed) {
+        continue;
+      }
+
       for (const project of manager.projects || []) {
         const ref = `${customer.name}::${manager.name}::${project.name}::${project.path}`;
         const active = state.selectedRef === ref ? "active" : "";
@@ -185,6 +236,30 @@ function renderProjectList() {
   }
 
   el.projectList.innerHTML = treeParts.join("");
+
+  el.projectList.querySelectorAll("[data-tree-toggle]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const type = node.getAttribute("data-tree-toggle");
+      const key = node.getAttribute("data-key");
+      if (!key) return;
+
+      if (type === "customer") {
+        if (state.collapsedCustomers.has(key)) {
+          state.collapsedCustomers.delete(key);
+        } else {
+          state.collapsedCustomers.add(key);
+        }
+      } else if (type === "manager") {
+        if (state.collapsedManagers.has(key)) {
+          state.collapsedManagers.delete(key);
+        } else {
+          state.collapsedManagers.add(key);
+        }
+      }
+      persistUiState();
+      renderProjectList();
+    });
+  });
 
   el.projectList.querySelectorAll(".project-card").forEach((node) => {
     node.addEventListener("click", async () => {
@@ -413,6 +488,25 @@ async function persistConfig() {
   state.config = save.config;
   state.configPath = save.configPath;
   el.configMeta.textContent = `Konfiguration: ${state.configPath}`;
+  return true;
+}
+
+async function persistUiState() {
+  const payload = {
+    ...state.uiState,
+    collapsedCustomers: Array.from(state.collapsedCustomers),
+    collapsedManagers: Array.from(state.collapsedManagers),
+  };
+  const save = await window.dashboardApi.saveUiState(payload);
+  if (!save.ok) {
+    return false;
+  }
+  state.uiState = {
+    ...state.uiState,
+    ...save.uiState,
+  };
+  state.collapsedCustomers = new Set(state.uiState.collapsedCustomers || []);
+  state.collapsedManagers = new Set(state.uiState.collapsedManagers || []);
   return true;
 }
 
@@ -680,6 +774,24 @@ async function init() {
   state.configPath = result.configPath;
   state.config = result.config;
   el.configMeta.textContent = `Konfiguration: ${state.configPath}`;
+
+  const uiStateResult = await window.dashboardApi.getUiState();
+  if (uiStateResult?.ok && uiStateResult.uiState) {
+    state.uiState = {
+      ...state.uiState,
+      ...uiStateResult.uiState,
+    };
+    state.collapsedCustomers = new Set(state.uiState.collapsedCustomers || []);
+    state.collapsedManagers = new Set(state.uiState.collapsedManagers || []);
+  }
+
+  bindModalEvents();
+  if (state.uiState.configEditorOpen) {
+    el.configModal.classList.remove("hidden");
+  } else {
+    el.configModal.classList.add("hidden");
+  }
+
   renderConfigEditor();
   renderProjectList();
 }
