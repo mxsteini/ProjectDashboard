@@ -4,17 +4,67 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "build:deb": "electron-builder --publish never --linux deb",
+    "build:dev": "npm run build:deb",
+    "build:rpm": "electron-builder --publish never --linux rpm",
+    "build:appimage": "electron-builder --publish never --linux AppImage",
+    "build:linux:unpacked": "electron-builder --publish never --linux dir",
+    "build:mac": "electron-builder --publish never --mac",
+    "build:win": "electron-builder --publish never --win",
+    "build:flatpak": "npm run build:linux:unpacked && electron-installer-flatpak --src dist/linux-unpacked --dest dist/flatpak --arch x64 --config flatpak.config.json",
+    "build:all": "npm run build:deb && npm run build:rpm && npm run build:appimage && npm run build:mac && npm run build:win && npm run build:flatpak"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "ProjektLauncher Dashboard",
+  "build": {
+    "appId": "de.itb.projektlauncher",
+    "productName": "ProjektLauncher",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "config.schema.json",
+      "package.json"
+    ],
+    "linux": {
+      "category": "Development",
+      "target": [
+        "deb",
+        "rpm",
+        "AppImage"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  },
   "dependencies": {
     "fast-glob": "^3.3.3",
     "js-yaml": "^4.1.1"
   },
   "devDependencies": {
-    "electron": "^41.1.0"
+    "@malept/electron-installer-flatpak": "^0.11.4",
+    "electron": "^41.1.0",
+    "electron-builder": "^26.8.1"
   }
 }

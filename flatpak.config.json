@@ -1,0 +1,11 @@
+{
+  "id": "de.itb.projektlauncher",
+  "productName": "ProjektLauncher",
+  "genericName": "Project Launcher",
+  "description": "ProjektLauncher Dashboard",
+  "categories": [
+    "Development",
+    "Utility"
+  ],
+  "branch": "stable"
+}

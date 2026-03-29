@@ -27,6 +27,31 @@ npm install
 npm start
 ```
 
+## Buildprozess (Pakete)
+
+Nach `npm install` stehen folgende Build-Skripte zur Verfuegung:
+
+```bash
+npm run build:deb
+npm run build:dev
+npm run build:rpm
+npm run build:appimage
+npm run build:mac
+npm run build:win
+npm run build:flatpak
+npm run build:all
+```
+
+- `build:dev` ist ein Alias auf `build:deb`.
+- Artefakte werden in `dist/` geschrieben.
+
+### Flatpak Voraussetzungen
+
+Fuer `npm run build:flatpak` muessen auf dem System installiert sein:
+
+- `flatpak`
+- `flatpak-builder`
+
 ## Konfiguration
 
 Beim ersten Start wird automatisch eine Konfigurationsdatei erstellt:
