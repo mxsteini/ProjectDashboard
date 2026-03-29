@@ -9,7 +9,8 @@ const state = {
     collapsedCustomers: [],
     collapsedManagers: [],
     dashboardSettingsOpen: false,
-    dashboardSettingsActiveTab: "grid",
+    dashboardSettingsActiveWidget: "project",
+    dashboardSettingsActiveSubtab: "gridsetup",
     dashboardLayouts: {},
   },
   collapsedCustomers: new Set(),
@@ -27,7 +28,8 @@ const el = {
   closeConfigModalBtn: document.getElementById("closeConfigModalBtn"),
   widgetSettingsModal: document.getElementById("widgetSettingsModal"),
   closeWidgetSettingsModalBtn: document.getElementById("closeWidgetSettingsModalBtn"),
-  widgetSettingsTabs: document.getElementById("widgetSettingsTabs"),
+  widgetSettingsTitle: document.getElementById("widgetSettingsTitle"),
+  widgetSettingsTabBar: document.getElementById("widgetSettingsTabBar"),
   widgetSettingsContent: document.getElementById("widgetSettingsContent"),
 };
 
@@ -206,10 +208,11 @@ function bindModalEvents() {
   });
 }
 
-async function openWidgetSettingsModal(tabId = "grid") {
+async function openWidgetSettingsModal(widgetId = "project", subtab = "gridsetup") {
   if (!state.selectedProjectEntry) return;
   state.uiState.dashboardSettingsOpen = true;
-  state.uiState.dashboardSettingsActiveTab = tabId;
+  state.uiState.dashboardSettingsActiveWidget = widgetId;
+  state.uiState.dashboardSettingsActiveSubtab = subtab;
   renderWidgetSettingsModal();
   el.widgetSettingsModal.classList.remove("hidden");
   await persistUiState();
@@ -221,63 +224,59 @@ async function closeWidgetSettingsModal() {
   await persistUiState();
 }
 
-function settingsTabsData() {
-  const defs = getWidgetDefinitions();
+function widgetSettingTabs() {
   return [
-    { id: "grid", label: "Grid" },
-    ...defs
-      .filter((item) => item.id !== "project" && item.available)
-      .map((item) => ({ id: `widget:${item.id}`, label: item.title })),
+    { id: "gridsetup", label: "Gridsetup" },
+    { id: "widget", label: "Widgeteinstellungen" },
   ];
 }
 
 function renderWidgetSettingsModal() {
   const layout = getProjectLayoutState();
   if (!layout) {
-    el.widgetSettingsTabs.innerHTML = "";
+    el.widgetSettingsTitle.textContent = "";
+    el.widgetSettingsTabBar.innerHTML = "";
     el.widgetSettingsContent.innerHTML = `<p>Bitte zuerst ein Projekt waehlen.</p>`;
     return;
   }
-  const tabs = settingsTabsData();
-  if (!tabs.some((item) => item.id === state.uiState.dashboardSettingsActiveTab)) {
-    state.uiState.dashboardSettingsActiveTab = "grid";
+
+  const defs = getWidgetDefinitions().filter((item) => item.available);
+  const byId = Object.fromEntries(defs.map((item) => [item.id, item]));
+  let activeWidgetId = state.uiState.dashboardSettingsActiveWidget || "project";
+  if (!byId[activeWidgetId]) {
+    activeWidgetId = defs[0]?.id || "project";
+  }
+  state.uiState.dashboardSettingsActiveWidget = activeWidgetId;
+
+  const tabs = widgetSettingTabs();
+  if (!tabs.some((item) => item.id === state.uiState.dashboardSettingsActiveSubtab)) {
+    state.uiState.dashboardSettingsActiveSubtab = "gridsetup";
   }
 
-  el.widgetSettingsTabs.innerHTML = tabs
+  el.widgetSettingsTitle.textContent = `${byId[activeWidgetId]?.title || activeWidgetId}`;
+  el.widgetSettingsTabBar.innerHTML = tabs
     .map((tab) => {
-      const active = tab.id === state.uiState.dashboardSettingsActiveTab ? "active" : "";
-      return `<button class="settings-tab ${active}" data-settings-tab="${escapeHtml(tab.id)}">${escapeHtml(tab.label)}</button>`;
+      const active = tab.id === state.uiState.dashboardSettingsActiveSubtab ? "active" : "";
+      return `<button class="widget-settings-tab ${active}" data-widget-subtab="${escapeHtml(tab.id)}">${escapeHtml(tab.label)}</button>`;
     })
     .join("");
 
-  const active = state.uiState.dashboardSettingsActiveTab;
-  if (active === "grid") {
-    const defs = getWidgetDefinitions();
-    const rows = defs
-      .filter((item) => item.available)
-      .map((item) => {
-        const current = layout.widgets[item.id]?.colSpan || 2;
-        return `
-          <label>${escapeHtml(item.title)} Breite (Spalten)</label>
-          <input type="number" min="1" max="6" id="gridWidth_${escapeHtml(item.id)}" value="${current}" />
-        `;
-      })
-      .join("");
+  const activeSubtab = state.uiState.dashboardSettingsActiveSubtab;
+  if (activeSubtab === "gridsetup") {
+    const current = layout.widgets[activeWidgetId]?.colSpan || 2;
 
     el.widgetSettingsContent.innerHTML = `
       <h3>Grid Einstellungen</h3>
       <p>Raster: <strong>6 Spalten</strong> (fix)</p>
-      <label>Abstand (px)</label>
-      <input id="gridGapInput" type="number" min="4" max="32" value="${layout.grid.gap}" />
-      <hr />
-      ${rows}
+      <label>Breite des Widgets (Spalten)</label>
+      <input type="number" min="1" max="6" id="gridWidthInput" value="${current}" />
       <div class="actions">
-        <button id="saveGridSettingsBtn">Grid speichern</button>
+        <button id="saveGridSettingsBtn" data-widget-id="${escapeHtml(activeWidgetId)}">Gridsetup speichern</button>
       </div>
     `;
-  } else if (active.startsWith("widget:")) {
-    const widgetId = active.replace("widget:", "");
-    const definition = getWidgetDefinitions().find((item) => item.id === widgetId);
+  } else {
+    const widgetId = activeWidgetId;
+    const definition = byId[widgetId];
     const fn = layout.widgetFunctions[widgetId] || {};
     if (widgetId === "ddev") {
       el.widgetSettingsContent.innerHTML = `
@@ -291,9 +290,8 @@ function renderWidgetSettingsModal() {
     } else if (widgetId === "git") {
       el.widgetSettingsContent.innerHTML = `
         <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="gitAllowStatus" type="checkbox" ${fn.allowStatus ? "checked" : ""} /> Status Aktion</label>
-        <label><input id="gitAllowPull" type="checkbox" ${fn.allowPull ? "checked" : ""} /> Pull Aktion</label>
-        <label><input id="gitAllowPush" type="checkbox" ${fn.allowPush ? "checked" : ""} /> Push Aktion</label>
+        <label><input id="gitAllowCheckout" type="checkbox" ${fn.allowCheckout ? "checked" : ""} /> Checkout Button anzeigen</label>
+        <label><input id="gitShowCurrentBranch" type="checkbox" ${fn.showCurrentBranch ? "checked" : ""} /> Aktiven Branch markieren</label>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="git">Einstellungen speichern</button></div>
       `;
     } else if (widgetId === "launcher") {
@@ -329,9 +327,9 @@ function renderWidgetSettingsModal() {
 }
 
 function bindWidgetSettingsEvents() {
-  el.widgetSettingsTabs.querySelectorAll("[data-settings-tab]").forEach((node) => {
+  el.widgetSettingsTabBar.querySelectorAll("[data-widget-subtab]").forEach((node) => {
     node.addEventListener("click", () => {
-      state.uiState.dashboardSettingsActiveTab = node.getAttribute("data-settings-tab") || "grid";
+      state.uiState.dashboardSettingsActiveSubtab = node.getAttribute("data-widget-subtab") || "gridsetup";
       renderWidgetSettingsModal();
       persistUiState();
     });
@@ -341,17 +339,13 @@ function bindWidgetSettingsEvents() {
   if (saveGridButton) {
     saveGridButton.addEventListener("click", async () => {
       const layout = getProjectLayoutState();
-      const gap = Number(document.getElementById("gridGapInput").value);
-      layout.grid.gap = Number.isFinite(gap) ? Math.max(4, Math.min(32, gap)) : 12;
-      for (const item of getWidgetDefinitions()) {
-        const widthInput = document.getElementById(`gridWidth_${item.id}`);
-        if (!widthInput) continue;
-        const width = Number(widthInput.value);
-        layout.widgets[item.id] = {
-          ...(layout.widgets[item.id] || baseWidgetState()),
-          colSpan: Number.isFinite(width) ? Math.max(1, Math.min(6, width)) : 2,
-        };
-      }
+      const widgetId = saveGridButton.getAttribute("data-widget-id");
+      if (!widgetId) return;
+      const width = Number(document.getElementById("gridWidthInput")?.value);
+      layout.widgets[widgetId] = {
+        ...(layout.widgets[widgetId] || baseWidgetState()),
+        colSpan: Number.isFinite(width) ? Math.max(1, Math.min(6, width)) : 2,
+      };
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
@@ -371,9 +365,8 @@ function bindWidgetSettingsEvents() {
         fn.allowStop = Boolean(document.getElementById("ddevAllowStop")?.checked);
         fn.allowRestart = Boolean(document.getElementById("ddevAllowRestart")?.checked);
       } else if (widgetId === "git") {
-        fn.allowStatus = Boolean(document.getElementById("gitAllowStatus")?.checked);
-        fn.allowPull = Boolean(document.getElementById("gitAllowPull")?.checked);
-        fn.allowPush = Boolean(document.getElementById("gitAllowPush")?.checked);
+        fn.allowCheckout = Boolean(document.getElementById("gitAllowCheckout")?.checked);
+        fn.showCurrentBranch = Boolean(document.getElementById("gitShowCurrentBranch")?.checked);
       } else if (widgetId === "launcher") {
         fn.allowCursor = Boolean(document.getElementById("launcherAllowCursor")?.checked);
         fn.allowVscode = Boolean(document.getElementById("launcherAllowVscode")?.checked);
@@ -547,9 +540,8 @@ function baseWidgetFunctionSettings() {
     },
     disk: {},
     git: {
-      allowStatus: true,
-      allowPull: true,
-      allowPush: true,
+      allowCheckout: true,
+      showCurrentBranch: true,
     },
     launcher: {
       allowCursor: true,
@@ -632,7 +624,11 @@ function renderWidgetShell(widgetId, title, body, colSpan) {
     <article class="widget dashboard-item" draggable="true" data-widget-id="${escapeHtml(widgetId)}" style="grid-column: span ${colSpan};">
       <div class="widget-header">
         <h3>${escapeHtml(title)}</h3>
-        <button data-open-widget-tab="${escapeHtml(widgetId)}">Settings</button>
+        <button class="widget-settings-icon-btn" data-open-widget-tab="${escapeHtml(widgetId)}" aria-label="Widget Einstellungen oeffnen" title="Widget Einstellungen">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M19.14 12.94a7.99 7.99 0 0 0 .06-.94 7.99 7.99 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.76 7.76 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.76 7.76 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.99 7.99 0 0 0-.06.94c0 .32.02.63.06.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
+          </svg>
+        </button>
       </div>
       ${body}
     </article>
@@ -667,18 +663,34 @@ function renderDiskBody() {
 function renderGitBody(fn) {
   const git = state.projectData?.gitInfo;
   const cls = statusClass(Boolean(git?.ok));
-  const summary = git?.ok
-    ? `Branch: ${escapeHtml(git.branch)}`
-    : escapeHtml(git?.message || "Kein Git-Repository.");
-  const output = git?.status || "Keine Ausgabe.";
-  const buttons = [];
-  if (fn.allowStatus) buttons.push(`<button data-git="status">Status</button>`);
-  if (fn.allowPull) buttons.push(`<button data-git="pull">Pull</button>`);
-  if (fn.allowPush) buttons.push(`<button data-git="push">Push</button>`);
+  if (!git?.ok) {
+    return `<p class="${cls}">${escapeHtml(git?.message || "Kein Git-Repository.")}</p>`;
+  }
+
+  const branches = Array.isArray(git.branches) ? git.branches : [];
+  if (!branches.length) {
+    return `<p class="status-warn">Keine lokalen Branches gefunden.</p>`;
+  }
+
+  const rows = branches
+    .map((branch) => {
+      const isCurrent = branch === git.currentBranch;
+      const label = fn.showCurrentBranch && isCurrent ? `${branch} (aktiv)` : branch;
+      const checkout = fn.allowCheckout
+        ? `<button data-git-checkout="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""}>Checkout</button>`
+        : "";
+      return `
+        <div class="actions">
+          <span class="${isCurrent ? "status-ok" : ""}">${escapeHtml(label)}</span>
+          ${checkout}
+        </div>
+      `;
+    })
+    .join("");
+
   return `
-    <p class="${cls}">${summary}</p>
-    <div class="actions">${buttons.join("") || `<span class="status-warn">Keine Git Aktionen aktiv.</span>`}</div>
-    <pre>${escapeHtml(output)}</pre>
+    <p class="${cls}">Lokale Branches</p>
+    ${rows}
   `;
 }
 
@@ -1038,14 +1050,14 @@ function bindDashboardEvents() {
 
   const openSettings = document.getElementById("openWidgetSettingsBtn");
   if (openSettings) {
-    openSettings.addEventListener("click", () => openWidgetSettingsModal("grid"));
+    openSettings.addEventListener("click", () => openWidgetSettingsModal("project", "gridsetup"));
   }
 
   document.querySelectorAll("[data-open-widget-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const widgetId = button.getAttribute("data-open-widget-tab");
       if (!widgetId) return;
-      openWidgetSettingsModal(`widget:${widgetId}`);
+      openWidgetSettingsModal(widgetId, "gridsetup");
     });
   });
 
@@ -1097,10 +1109,10 @@ function bindDashboardEvents() {
     });
   });
 
-  document.querySelectorAll("[data-git]").forEach((button) => {
+  document.querySelectorAll("[data-git-checkout]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const action = button.getAttribute("data-git");
-      const result = await window.dashboardApi.runGit({ projectPath, action });
+      const branch = button.getAttribute("data-git-checkout");
+      const result = await window.dashboardApi.runGit({ projectPath, action: "checkout", branch });
       alert(result.ok ? result.stdout || "OK" : result.stderr || "Fehler");
       await refreshProject();
     });

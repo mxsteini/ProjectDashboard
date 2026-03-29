@@ -27,7 +27,8 @@ function defaultUiState() {
   return {
     configEditorOpen: false,
     dashboardSettingsOpen: false,
-    dashboardSettingsActiveTab: "grid",
+    dashboardSettingsActiveWidget: "project",
+    dashboardSettingsActiveSubtab: "gridsetup",
     dashboardLayouts: {},
     collapsedCustomers: [],
     collapsedManagers: [],
@@ -95,10 +96,14 @@ function normalizeUiState(input) {
       typeof source.dashboardSettingsOpen === "boolean"
         ? source.dashboardSettingsOpen
         : defaults.dashboardSettingsOpen,
-    dashboardSettingsActiveTab:
-      typeof source.dashboardSettingsActiveTab === "string" && source.dashboardSettingsActiveTab
-        ? source.dashboardSettingsActiveTab
-        : defaults.dashboardSettingsActiveTab,
+    dashboardSettingsActiveWidget:
+      typeof source.dashboardSettingsActiveWidget === "string" && source.dashboardSettingsActiveWidget
+        ? source.dashboardSettingsActiveWidget
+        : defaults.dashboardSettingsActiveWidget,
+    dashboardSettingsActiveSubtab:
+      typeof source.dashboardSettingsActiveSubtab === "string" && source.dashboardSettingsActiveSubtab
+        ? source.dashboardSettingsActiveSubtab
+        : defaults.dashboardSettingsActiveSubtab,
     dashboardLayouts:
       source.dashboardLayouts && typeof source.dashboardLayouts === "object" && !Array.isArray(source.dashboardLayouts)
         ? source.dashboardLayouts
@@ -226,25 +231,40 @@ async function getGitInfo(projectPath) {
   }
 
   const branch = await runCommand("git", ["-C", projectPath, "branch", "--show-current"]);
-  const status = await runCommand("git", ["-C", projectPath, "status", "--short", "--branch"]);
+  const branchesResult = await runCommand("git", [
+    "-C",
+    projectPath,
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "refs/heads",
+  ]);
+
+  const branches = branchesResult.ok
+    ? branchesResult.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : [];
 
   return {
     ok: true,
     inRepo: true,
     branch: branch.stdout || "n/a",
-    status: status.stdout || "Arbeitsverzeichnis sauber.",
+    currentBranch: branch.stdout || "",
+    branches,
   };
 }
 
-async function runGitAction(projectPath, action) {
-  if (action === "status") {
-    return runCommand("git", ["-C", projectPath, "status", "--short", "--branch"]);
-  }
-  if (action === "pull") {
-    return runCommand("git", ["-C", projectPath, "pull"]);
-  }
-  if (action === "push") {
-    return runCommand("git", ["-C", projectPath, "push"]);
+function isSafeBranchName(value) {
+  return typeof value === "string" && /^[a-zA-Z0-9._/-]+$/.test(value);
+}
+
+async function runGitAction(projectPath, action, branch) {
+  if (action === "checkout") {
+    if (!isSafeBranchName(branch)) {
+      return { ok: false, code: 1, stdout: "", stderr: "Ungueltiger Branchname." };
+    }
+    return runCommand("git", ["-C", projectPath, "checkout", branch]);
   }
   return { ok: false, code: 1, stdout: "", stderr: `Unbekannte Git-Aktion: ${action}` };
 }
@@ -478,8 +498,8 @@ ipcMain.handle("ddev:run", async (_event, { projectPath, action }) => {
   return runDdevAction(projectPath, action);
 });
 
-ipcMain.handle("git:run", async (_event, { projectPath, action }) => {
-  return runGitAction(projectPath, action);
+ipcMain.handle("git:run", async (_event, { projectPath, action, branch }) => {
+  return runGitAction(projectPath, action, branch);
 });
 
 ipcMain.handle("launcher:open", async (_event, { projectPath, program }) => {

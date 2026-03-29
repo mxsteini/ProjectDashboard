@@ -221,6 +221,21 @@ select {
   cursor: grabbing;
 }
 
+.widget-settings-icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.widget-settings-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
 .widget h3 {
   margin: 0;
   font-size: 1rem;
@@ -296,23 +311,22 @@ pre {
   outline: 1px dashed var(--primary);
 }
 
-.settings-layout {
+.widget-settings-shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 
-.settings-tabs {
-  display: grid;
-  gap: 6px;
-  align-content: start;
+.widget-settings-shell h3 {
+  margin: 0;
 }
 
-.settings-tab {
-  text-align: left;
+.widget-settings-tabbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.settings-tab.active {
+.widget-settings-tab.active {
   border-color: var(--primary);
 }
 
