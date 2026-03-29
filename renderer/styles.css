@@ -154,6 +154,26 @@ select {
   fill: currentColor;
 }
 
+.add-widget-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+}
+
+.add-widget-fab svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
 .modal {
   position: fixed;
   inset: 0;
@@ -249,10 +269,6 @@ select {
   line-height: 1;
 }
 
-.dashboard-toolbar {
-  padding: 10px 12px;
-}
-
 .widget h3 {
   margin: 0;
   font-size: 1rem;
@@ -266,6 +282,15 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.git-branch-list {
+  display: grid;
+  gap: 8px;
+}
+
+.git-branch-row {
+  align-items: center;
 }
 
 button {

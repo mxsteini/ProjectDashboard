@@ -27,6 +27,12 @@
       </section>
     </main>
 
+    <button id="openAddWidgetModalBtn" class="add-widget-fab" aria-label="Widget hinzufuegen" title="Widget hinzufuegen">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6V5Z" />
+      </svg>
+    </button>
+
     <div id="configModal" class="modal hidden" role="dialog" aria-modal="true">
       <div class="modal-card">
         <div class="modal-actions">
@@ -47,6 +53,16 @@
           <div id="widgetSettingsTabBar" class="widget-settings-tabbar"></div>
           <section id="widgetSettingsContent" class="settings-content"></section>
         </div>
+      </div>
+    </div>
+
+    <div id="addWidgetModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <div class="modal-actions">
+          <button id="closeAddWidgetModalBtn" aria-label="Dialog schliessen">Schliessen</button>
+        </div>
+        <h3>Verfuegbare Widgets</h3>
+        <div id="addWidgetList" class="settings-content"></div>
       </div>
     </div>
 

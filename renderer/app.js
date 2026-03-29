@@ -17,7 +17,6 @@ const state = {
   collapsedCustomers: new Set(),
   collapsedManagers: new Set(),
   draggingWidgetId: "",
-  showAddWidgetPicker: false,
 };
 
 const el = {
@@ -33,6 +32,10 @@ const el = {
   widgetSettingsTitle: document.getElementById("widgetSettingsTitle"),
   widgetSettingsTabBar: document.getElementById("widgetSettingsTabBar"),
   widgetSettingsContent: document.getElementById("widgetSettingsContent"),
+  openAddWidgetModalBtn: document.getElementById("openAddWidgetModalBtn"),
+  addWidgetModal: document.getElementById("addWidgetModal"),
+  closeAddWidgetModalBtn: document.getElementById("closeAddWidgetModalBtn"),
+  addWidgetList: document.getElementById("addWidgetList"),
 };
 
 function escapeHtml(text) {
@@ -208,6 +211,70 @@ function bindModalEvents() {
       closeWidgetSettingsModal();
     }
   });
+
+  el.openAddWidgetModalBtn.addEventListener("click", () => openAddWidgetModal());
+  el.closeAddWidgetModalBtn.addEventListener("click", () => closeAddWidgetModal());
+  el.addWidgetModal.addEventListener("click", (event) => {
+    if (event.target === el.addWidgetModal) {
+      closeAddWidgetModal();
+    }
+  });
+}
+
+function getHiddenWidgets() {
+  const selected = state.selectedProjectEntry;
+  if (!selected) return [];
+  const layout = getProjectLayoutState();
+  const defs = getWidgetDefinitions();
+  const byId = Object.fromEntries(defs.map((item) => [item.id, item]));
+  const availableIds = defs.filter((item) => item.available).map((item) => item.id);
+  const orderedIds = layout.order.filter((id) => availableIds.includes(id));
+  return orderedIds
+    .filter((id) => layout.widgets[id]?.visible === false)
+    .map((id) => ({ id, title: byId[id]?.title || id }));
+}
+
+function updateAddWidgetButtonState() {
+  const hidden = getHiddenWidgets();
+  const hasProject = Boolean(state.selectedProjectEntry);
+  el.openAddWidgetModalBtn.disabled = !hasProject;
+  el.openAddWidgetModalBtn.style.display = hasProject ? "inline-flex" : "none";
+  el.openAddWidgetModalBtn.title = hidden.length ? "Widget hinzufuegen" : "Keine weiteren Widgets verfuegbar";
+}
+
+function renderAddWidgetModal() {
+  const hidden = getHiddenWidgets();
+  if (!hidden.length) {
+    el.addWidgetList.innerHTML = `<p class="status-warn">Keine ausgeblendeten Widgets verfuegbar.</p>`;
+    return;
+  }
+  el.addWidgetList.innerHTML = hidden
+    .map((widget) => `<button data-add-widget="${escapeHtml(widget.id)}">${escapeHtml(widget.title)}</button>`)
+    .join("");
+  el.addWidgetList.querySelectorAll("[data-add-widget]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const widgetId = button.getAttribute("data-add-widget");
+      if (!widgetId) return;
+      const layout = getProjectLayoutState();
+      layout.widgets[widgetId] = {
+        ...(layout.widgets[widgetId] || baseWidgetState()),
+        visible: true,
+      };
+      await persistUiState();
+      closeAddWidgetModal();
+      renderDashboard();
+    });
+  });
+}
+
+function openAddWidgetModal() {
+  if (!state.selectedProjectEntry) return;
+  renderAddWidgetModal();
+  el.addWidgetModal.classList.remove("hidden");
+}
+
+function closeAddWidgetModal() {
+  el.addWidgetModal.classList.add("hidden");
 }
 
 async function openWidgetSettingsModal(widgetId = "project", subtab = "gridsetup") {
@@ -502,6 +569,8 @@ function resetDashboardState() {
   state.selectedRef = "";
   state.uiState.lastSelectedProjectRef = "";
   state.projectData = null;
+  closeAddWidgetModal();
+  updateAddWidgetButtonState();
   setDashboard(`
     <div class="empty-state">
       <h2>Kein Projekt ausgewaehlt</h2>
@@ -692,9 +761,9 @@ function renderGitBody(fn) {
         ? `<button data-git-checkout="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""}>Checkout</button>`
         : "";
       return `
-        <div class="actions">
-          <span class="${isCurrent ? "status-ok" : ""}">${escapeHtml(label)}</span>
+        <div class="actions git-branch-row">
           ${checkout}
+          <span class="${isCurrent ? "status-ok" : ""}">${escapeHtml(label)}</span>
         </div>
       `;
     })
@@ -702,7 +771,7 @@ function renderGitBody(fn) {
 
   return `
     <p class="${cls}">Lokale Branches</p>
-    ${rows}
+    <div class="git-branch-list">${rows}</div>
   `;
 }
 
@@ -807,26 +876,6 @@ function renderDashboard() {
   el.dashboard.style.gap = `${layout.grid.gap}px`;
 
   const orderedIds = layout.order.filter((id) => availableIds.includes(id));
-  const hiddenIds = orderedIds.filter((id) => layout.widgets[id]?.visible === false);
-  const toolbar = `
-    <article class="widget dashboard-toolbar" style="grid-column: 1 / -1;">
-      <div class="actions">
-        <button id="toggleAddWidgetBtn">Add Widget</button>
-      </div>
-      ${
-        state.showAddWidgetPicker && hiddenIds.length
-          ? `<div class="actions">${hiddenIds
-              .map((id) => `<button data-add-widget="${escapeHtml(id)}">${escapeHtml(byId[id]?.title || id)}</button>`)
-              .join("")}</div>`
-          : ""
-      }
-      ${
-        state.showAddWidgetPicker && !hiddenIds.length
-          ? `<p class="status-warn">Keine ausgeblendeten Widgets vorhanden.</p>`
-          : ""
-      }
-    </article>
-  `;
   const parts = orderedIds
     .filter((id) => layout.widgets[id]?.visible !== false)
     .map((id) => {
@@ -835,10 +884,8 @@ function renderDashboard() {
       return renderWidgetShell(id, widget.title, widget.body, colSpan);
     });
 
-  setDashboard(
-    toolbar +
-      (parts.length ? parts.join("") : `<div class="empty-state"><h2>Keine Widgets sichtbar</h2></div>`),
-  );
+  setDashboard(parts.length ? parts.join("") : `<div class="empty-state"><h2>Keine Widgets sichtbar</h2></div>`);
+  updateAddWidgetButtonState();
   if (state.uiState.dashboardSettingsOpen) {
     renderWidgetSettingsModal();
   }
@@ -1088,28 +1135,6 @@ function bindDashboardEvents() {
     openSettings.addEventListener("click", () => openWidgetSettingsModal("project", "gridsetup"));
   }
 
-  const toggleAddWidgetBtn = document.getElementById("toggleAddWidgetBtn");
-  if (toggleAddWidgetBtn) {
-    toggleAddWidgetBtn.addEventListener("click", () => {
-      state.showAddWidgetPicker = !state.showAddWidgetPicker;
-      renderDashboard();
-    });
-  }
-
-  document.querySelectorAll("[data-add-widget]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const widgetId = button.getAttribute("data-add-widget");
-      if (!widgetId) return;
-      layout.widgets[widgetId] = {
-        ...(layout.widgets[widgetId] || baseWidgetState()),
-        visible: true,
-      };
-      state.showAddWidgetPicker = false;
-      await persistUiState();
-      renderDashboard();
-    });
-  });
-
   document.querySelectorAll("[data-open-widget-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const widgetId = button.getAttribute("data-open-widget-tab");
@@ -1127,6 +1152,7 @@ function bindDashboardEvents() {
         visible: false,
       };
       await persistUiState();
+      closeAddWidgetModal();
       renderDashboard();
     });
   });
@@ -1247,6 +1273,7 @@ async function init() {
   }
 
   bindModalEvents();
+  updateAddWidgetButtonState();
   if (state.uiState.configEditorOpen) {
     el.configModal.classList.remove("hidden");
   } else {
