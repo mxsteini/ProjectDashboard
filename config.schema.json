@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProjektLauncher Config",
+  "type": "object",
+  "required": ["customers"],
+  "properties": {
+    "customers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "projectManagers"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "projectManagers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "projects"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "projects": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "path": { "type": "string", "minLength": 1 },
+                      "widgets": {
+                        "type": "object",
+                        "properties": {
+                          "ddev": { "type": "boolean" },
+                          "diskUsage": { "type": "boolean" },
+                          "git": { "type": "boolean" },
+                          "browser": { "type": "boolean" },
+                          "launcher": {
+                            "type": "object",
+                            "properties": {
+                              "cursor": { "type": "boolean" },
+                              "vscode": { "type": "boolean" },
+                              "explorer": { "type": "boolean" },
+                              "terminal": { "type": "boolean" }
+                            },
+                            "additionalProperties": false
+                          },
+                          "ssh": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": ["host", "username"],
+                              "properties": {
+                                "label": { "type": "string" },
+                                "host": { "type": "string", "minLength": 1 },
+                                "username": { "type": "string", "minLength": 1 },
+                                "password": { "type": "string" }
+                              },
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

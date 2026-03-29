@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ProjektLauncher</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>ProjektLauncher</h1>
+      <p id="configMeta">Lade Konfiguration...</p>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <h2>Projekte</h2>
+        <section id="configEditor" class="config-editor"></section>
+        <div id="projectList" class="project-list"></div>
+      </aside>
+
+      <section id="dashboard" class="dashboard">
+        <div class="empty-state">
+          <h2>Kein Projekt ausgewaehlt</h2>
+          <p>Waehle links ein Projekt aus.</p>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
