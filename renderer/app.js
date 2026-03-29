@@ -6,6 +6,7 @@ const state = {
   projectData: null,
   uiState: {
     configEditorOpen: false,
+    lastSelectedProjectRef: "",
     collapsedCustomers: [],
     collapsedManagers: [],
     dashboardSettingsOpen: false,
@@ -16,6 +17,7 @@ const state = {
   collapsedCustomers: new Set(),
   collapsedManagers: new Set(),
   draggingWidgetId: "",
+  showAddWidgetPicker: false,
 };
 
 const el = {
@@ -462,6 +464,8 @@ function renderProjectList() {
       if (!row) return;
       state.selectedRef = ref;
       state.selectedProjectEntry = row;
+      state.uiState.lastSelectedProjectRef = ref;
+      await persistUiState();
       renderProjectList();
       await refreshProject();
     });
@@ -496,6 +500,7 @@ async function refreshProject() {
 function resetDashboardState() {
   state.selectedProjectEntry = null;
   state.selectedRef = "";
+  state.uiState.lastSelectedProjectRef = "";
   state.projectData = null;
   setDashboard(`
     <div class="empty-state">
@@ -510,6 +515,7 @@ function ensureSelectedProjectStillExists() {
   const match = flattenProjects().find((item) => item.ref === state.selectedRef);
   if (!match) {
     resetDashboardState();
+    persistUiState();
   } else {
     state.selectedProjectEntry = match;
   }
@@ -620,15 +626,21 @@ function getProjectLayoutState() {
 }
 
 function renderWidgetShell(widgetId, title, body, colSpan) {
+  const closeButton = widgetId === "project"
+    ? ""
+    : `<button class="widget-close-btn" data-close-widget="${escapeHtml(widgetId)}" aria-label="Widget schliessen" title="Widget schliessen">✕</button>`;
   return `
     <article class="widget dashboard-item" draggable="true" data-widget-id="${escapeHtml(widgetId)}" style="grid-column: span ${colSpan};">
       <div class="widget-header">
         <h3>${escapeHtml(title)}</h3>
-        <button class="widget-settings-icon-btn" data-open-widget-tab="${escapeHtml(widgetId)}" aria-label="Widget Einstellungen oeffnen" title="Widget Einstellungen">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M19.14 12.94a7.99 7.99 0 0 0 .06-.94 7.99 7.99 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.76 7.76 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.76 7.76 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.99 7.99 0 0 0-.06.94c0 .32.02.63.06.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
-          </svg>
-        </button>
+        <div class="widget-header-actions">
+          <button class="widget-settings-icon-btn" data-open-widget-tab="${escapeHtml(widgetId)}" aria-label="Widget Einstellungen oeffnen" title="Widget Einstellungen">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M19.14 12.94a7.99 7.99 0 0 0 .06-.94 7.99 7.99 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.76 7.76 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.76 7.76 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.99 7.99 0 0 0-.06.94c0 .32.02.63.06.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.71 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.23 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
+            </svg>
+          </button>
+          ${closeButton}
+        </div>
       </div>
       ${body}
     </article>
@@ -795,6 +807,26 @@ function renderDashboard() {
   el.dashboard.style.gap = `${layout.grid.gap}px`;
 
   const orderedIds = layout.order.filter((id) => availableIds.includes(id));
+  const hiddenIds = orderedIds.filter((id) => layout.widgets[id]?.visible === false);
+  const toolbar = `
+    <article class="widget dashboard-toolbar" style="grid-column: 1 / -1;">
+      <div class="actions">
+        <button id="toggleAddWidgetBtn">Add Widget</button>
+      </div>
+      ${
+        state.showAddWidgetPicker && hiddenIds.length
+          ? `<div class="actions">${hiddenIds
+              .map((id) => `<button data-add-widget="${escapeHtml(id)}">${escapeHtml(byId[id]?.title || id)}</button>`)
+              .join("")}</div>`
+          : ""
+      }
+      ${
+        state.showAddWidgetPicker && !hiddenIds.length
+          ? `<p class="status-warn">Keine ausgeblendeten Widgets vorhanden.</p>`
+          : ""
+      }
+    </article>
+  `;
   const parts = orderedIds
     .filter((id) => layout.widgets[id]?.visible !== false)
     .map((id) => {
@@ -803,7 +835,10 @@ function renderDashboard() {
       return renderWidgetShell(id, widget.title, widget.body, colSpan);
     });
 
-  setDashboard(parts.length ? parts.join("") : `<div class="empty-state"><h2>Keine Widgets sichtbar</h2></div>`);
+  setDashboard(
+    toolbar +
+      (parts.length ? parts.join("") : `<div class="empty-state"><h2>Keine Widgets sichtbar</h2></div>`),
+  );
   if (state.uiState.dashboardSettingsOpen) {
     renderWidgetSettingsModal();
   }
@@ -1053,11 +1088,46 @@ function bindDashboardEvents() {
     openSettings.addEventListener("click", () => openWidgetSettingsModal("project", "gridsetup"));
   }
 
+  const toggleAddWidgetBtn = document.getElementById("toggleAddWidgetBtn");
+  if (toggleAddWidgetBtn) {
+    toggleAddWidgetBtn.addEventListener("click", () => {
+      state.showAddWidgetPicker = !state.showAddWidgetPicker;
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-add-widget]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const widgetId = button.getAttribute("data-add-widget");
+      if (!widgetId) return;
+      layout.widgets[widgetId] = {
+        ...(layout.widgets[widgetId] || baseWidgetState()),
+        visible: true,
+      };
+      state.showAddWidgetPicker = false;
+      await persistUiState();
+      renderDashboard();
+    });
+  });
+
   document.querySelectorAll("[data-open-widget-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const widgetId = button.getAttribute("data-open-widget-tab");
       if (!widgetId) return;
       openWidgetSettingsModal(widgetId, "gridsetup");
+    });
+  });
+
+  document.querySelectorAll("[data-close-widget]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const widgetId = button.getAttribute("data-close-widget");
+      if (!widgetId) return;
+      layout.widgets[widgetId] = {
+        ...(layout.widgets[widgetId] || baseWidgetState()),
+        visible: false,
+      };
+      await persistUiState();
+      renderDashboard();
     });
   });
 
@@ -1190,6 +1260,22 @@ async function init() {
 
   renderConfigEditor();
   renderProjectList();
+
+  if (state.uiState.lastSelectedProjectRef) {
+    const projects = flattenProjects();
+    const match = projects.find((item) => item.ref === state.uiState.lastSelectedProjectRef);
+    if (match) {
+      state.selectedRef = match.ref;
+      state.selectedProjectEntry = match;
+      state.collapsedCustomers.delete(match.customerName);
+      state.collapsedManagers.delete(`${match.customerName}::${match.managerName}`);
+      renderProjectList();
+      await refreshProject();
+    } else {
+      state.uiState.lastSelectedProjectRef = "";
+      await persistUiState();
+    }
+  }
 }
 
 init();

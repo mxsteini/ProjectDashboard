@@ -29,6 +29,7 @@ function defaultUiState() {
     dashboardSettingsOpen: false,
     dashboardSettingsActiveWidget: "project",
     dashboardSettingsActiveSubtab: "gridsetup",
+    lastSelectedProjectRef: "",
     dashboardLayouts: {},
     collapsedCustomers: [],
     collapsedManagers: [],
@@ -104,6 +105,8 @@ function normalizeUiState(input) {
       typeof source.dashboardSettingsActiveSubtab === "string" && source.dashboardSettingsActiveSubtab
         ? source.dashboardSettingsActiveSubtab
         : defaults.dashboardSettingsActiveSubtab,
+    lastSelectedProjectRef:
+      typeof source.lastSelectedProjectRef === "string" ? source.lastSelectedProjectRef : defaults.lastSelectedProjectRef,
     dashboardLayouts:
       source.dashboardLayouts && typeof source.dashboardLayouts === "object" && !Array.isArray(source.dashboardLayouts)
         ? source.dashboardLayouts

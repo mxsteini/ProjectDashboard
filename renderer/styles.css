@@ -221,6 +221,12 @@ select {
   cursor: grabbing;
 }
 
+.widget-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .widget-settings-icon-btn {
   width: 30px;
   height: 30px;
@@ -234,6 +240,17 @@ select {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.widget-close-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+}
+
+.dashboard-toolbar {
+  padding: 10px 12px;
 }
 
 .widget h3 {
