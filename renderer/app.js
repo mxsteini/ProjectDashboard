@@ -100,6 +100,7 @@ function defaultNpmButtons() {
 }
 
 const COMMAND_WIDGET_PREFIX = "command::";
+const SSH_WIDGET_PREFIX = "ssh::";
 
 function isCommandWidgetId(widgetId) {
   return typeof widgetId === "string" && widgetId.startsWith(COMMAND_WIDGET_PREFIX);
@@ -113,6 +114,24 @@ function defaultCommandWidgetSettings() {
   return {
     title: "Command",
     buttons: [],
+  };
+}
+
+function isSshWidgetId(widgetId) {
+  return typeof widgetId === "string" && widgetId.startsWith(SSH_WIDGET_PREFIX);
+}
+
+function createSshWidgetId() {
+  return `${SSH_WIDGET_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultSshWidgetSettings() {
+  return {
+    title: "Remote-Widget",
+    showHint: true,
+    selectedHosts: [],
+    commandTemplate: "ssh {host}",
+    runInTerminal: true,
   };
 }
 
@@ -335,6 +354,7 @@ function renderAddWidgetModal() {
     .join("");
   el.addWidgetList.innerHTML = `
     <button data-add-command-widget="true">Command Widget hinzufuegen</button>
+    <button data-add-ssh-widget="true">Remote-Widget hinzufuegen</button>
     ${hiddenButtons || `<p class="status-warn">Keine weiteren ausgeblendeten Widgets verfuegbar.</p>`}
   `;
   const addCommandWidgetButton = el.addWidgetList.querySelector("[data-add-command-widget]");
@@ -348,6 +368,23 @@ function renderAddWidgetModal() {
         visible: true,
       };
       layout.widgetFunctions[widgetId] = defaultCommandWidgetSettings();
+      await persistUiState();
+      closeAddWidgetModal();
+      renderDashboard();
+      openWidgetSettingsModal(widgetId, "widget");
+    });
+  }
+  const addSshWidgetButton = el.addWidgetList.querySelector("[data-add-ssh-widget]");
+  if (addSshWidgetButton) {
+    addSshWidgetButton.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const widgetId = createSshWidgetId();
+      layout.order.push(widgetId);
+      layout.widgets[widgetId] = {
+        ...baseWidgetState(),
+        visible: true,
+      };
+      layout.widgetFunctions[widgetId] = defaultSshWidgetSettings();
       await persistUiState();
       closeAddWidgetModal();
       renderDashboard();
@@ -584,11 +621,42 @@ function renderWidgetSettingsModal() {
         <label><input id="launcherAllowTerminal" type="checkbox" ${fn.allowTerminal ? "checked" : ""} /> Terminal Button</label>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="launcher">Einstellungen speichern</button></div>
       `;
-    } else if (widgetId === "ssh") {
+    } else if (widgetId === "ssh" || isSshWidgetId(widgetId)) {
+      const sshFn = normalizeSshWidgetSettings(fn);
+      const allHosts = Array.isArray(state.projectData?.sshHosts) ? state.projectData.sshHosts : [];
+      const rows = allHosts.length
+        ? allHosts
+            .map((entry) => {
+              const alias = String(entry.alias || "").trim();
+              if (!alias) return "";
+              const details = [entry.user ? `user: ${entry.user}` : "", entry.hostname ? `host: ${entry.hostname}` : "", entry.port ? `port: ${entry.port}` : ""]
+                .filter(Boolean)
+                .join(" · ");
+              const checked = sshFn.selectedHosts.includes(alias) ? "checked" : "";
+              const searchable = `${alias} ${entry.user || ""} ${entry.hostname || ""} ${entry.port || ""}`.toLowerCase();
+              return `
+                <label class="config-block" data-ssh-host-row="${escapeHtml(searchable)}">
+                  <input type="checkbox" data-ssh-select-host="${escapeHtml(alias)}" ${checked} />
+                  <strong>${escapeHtml(alias)}</strong>
+                  ${details ? `<span class="meta">${escapeHtml(details)}</span>` : ""}
+                </label>
+              `;
+            })
+            .join("")
+        : `<p class="status-warn">Keine Hosts in ~/.ssh/config gefunden.</p>`;
       el.widgetSettingsContent.innerHTML = `
         <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="sshShowHint" type="checkbox" ${fn.showHint ? "checked" : ""} /> Hinweistext anzeigen</label>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="ssh">Einstellungen speichern</button></div>
+        <label>Widget Titel</label>
+        <input id="sshWidgetTitle" value="${escapeHtml(sshFn.title)}" placeholder="Remote-Widget" />
+        <label><input id="sshShowHint" type="checkbox" ${sshFn.showHint ? "checked" : ""} /> Hinweistext anzeigen</label>
+        <label>Remote Kommando</label>
+        <input id="sshCommandTemplate" value="${escapeHtml(sshFn.commandTemplate)}" placeholder="ssh {host}" />
+        <label><input id="sshRunInTerminal" type="checkbox" ${sshFn.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
+        <p class="meta">Platzhalter: {host}, {user}, {hostname}, {port}</p>
+        <label>Hosts durchsuchen</label>
+        <input id="sshHostSearchInput" placeholder="Alias, User, Hostname..." />
+        <div class="filebrowser-list">${rows}</div>
+        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
       `;
     } else if (widgetId === "browser") {
       el.widgetSettingsContent.innerHTML = `
@@ -684,12 +752,24 @@ function bindWidgetSettingsEvents() {
         fn.allowVscode = Boolean(document.getElementById("launcherAllowVscode")?.checked);
         fn.allowExplorer = Boolean(document.getElementById("launcherAllowExplorer")?.checked);
         fn.allowTerminal = Boolean(document.getElementById("launcherAllowTerminal")?.checked);
-      } else if (widgetId === "ssh") {
-        fn.showHint = Boolean(document.getElementById("sshShowHint")?.checked);
+      } else if (widgetId === "ssh" || isSshWidgetId(widgetId)) {
+        const sshFn = normalizeSshWidgetSettings(fn);
+        const selectedHosts = Array.from(document.querySelectorAll("[data-ssh-select-host]"))
+          .filter((node) => node.checked)
+          .map((node) => String(node.getAttribute("data-ssh-select-host") || "").trim())
+          .filter(Boolean);
+        sshFn.title = String(document.getElementById("sshWidgetTitle")?.value || "").trim() || "Remote-Widget";
+        sshFn.showHint = Boolean(document.getElementById("sshShowHint")?.checked);
+        sshFn.selectedHosts = selectedHosts;
+        sshFn.commandTemplate = String(document.getElementById("sshCommandTemplate")?.value || "").trim() || "ssh {host}";
+        sshFn.runInTerminal = Boolean(document.getElementById("sshRunInTerminal")?.checked);
+        layout.widgetFunctions[widgetId] = sshFn;
       } else if (widgetId === "browser") {
         fn.showSourceHint = Boolean(document.getElementById("browserShowSourceHint")?.checked);
       }
-      layout.widgetFunctions[widgetId] = fn;
+      if (!(widgetId === "ssh" || isSshWidgetId(widgetId))) {
+        layout.widgetFunctions[widgetId] = fn;
+      }
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
@@ -781,6 +861,17 @@ function bindWidgetSettingsEvents() {
       renderDashboard();
     });
   });
+
+  const sshHostSearchInput = document.getElementById("sshHostSearchInput");
+  if (sshHostSearchInput) {
+    sshHostSearchInput.addEventListener("input", () => {
+      const query = String(sshHostSearchInput.value || "").trim().toLowerCase();
+      document.querySelectorAll("[data-ssh-host-row]").forEach((row) => {
+        const haystack = String(row.getAttribute("data-ssh-host-row") || "");
+        row.style.display = !query || haystack.includes(query) ? "" : "none";
+      });
+    });
+  }
 
   const addNpmButtonBtn = document.getElementById("addNpmButtonBtn");
   if (addNpmButtonBtn) {
@@ -1035,9 +1126,7 @@ function baseWidgetFunctionSettings() {
       allowExplorer: true,
       allowTerminal: true,
     },
-    ssh: {
-      showHint: true,
-    },
+    ssh: defaultSshWidgetSettings(),
     browser: {
       showSourceHint: true,
     },
@@ -1075,6 +1164,40 @@ function normalizeCommandWidgetSettings(value) {
     title: String(source.title || "Command").trim() || "Command",
     buttons: normalizeCommandButtons(source.buttons),
   };
+}
+
+function normalizeSshWidgetSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const defaults = defaultSshWidgetSettings();
+  return {
+    title: String(source.title || defaults.title).trim() || defaults.title,
+    showHint: source.showHint !== false,
+    selectedHosts: Array.isArray(source.selectedHosts)
+      ? source.selectedHosts.map((item) => String(item).trim()).filter(Boolean)
+      : defaults.selectedHosts,
+    commandTemplate: String(source.commandTemplate || defaults.commandTemplate).trim() || defaults.commandTemplate,
+    runInTerminal: source.runInTerminal !== false,
+  };
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'\\''`)}'`;
+}
+
+function applyCommandTemplate(template, values) {
+  let resolved = String(template || "").trim() || "ssh {host}";
+  let usedPlaceholder = false;
+  Object.entries(values).forEach(([key, rawValue]) => {
+    const token = `{${key}}`;
+    if (resolved.includes(token)) {
+      resolved = resolved.replaceAll(token, shellQuote(rawValue));
+      usedPlaceholder = true;
+    }
+  });
+  if (!usedPlaceholder && values.host) {
+    resolved = `${resolved} ${shellQuote(values.host)}`;
+  }
+  return resolved.trim();
 }
 
 function normalizeDdevButtons(config) {
@@ -1182,6 +1305,9 @@ function getProjectLayoutState() {
       ...Object.keys(layout.widgets || {}).filter((id) => isCommandWidgetId(id)),
       ...Object.keys(layout.widgetFunctions || {}).filter((id) => isCommandWidgetId(id)),
       ...(Array.isArray(layout.order) ? layout.order.filter((id) => isCommandWidgetId(id)) : []),
+      ...Object.keys(layout.widgets || {}).filter((id) => isSshWidgetId(id)),
+      ...Object.keys(layout.widgetFunctions || {}).filter((id) => isSshWidgetId(id)),
+      ...(Array.isArray(layout.order) ? layout.order.filter((id) => isSshWidgetId(id)) : []),
     ]),
   );
   for (const id of [...staticWidgetIds, ...dynamicWidgetIds]) {
@@ -1221,8 +1347,13 @@ function getProjectLayoutState() {
     };
   }
   for (const widgetId of dynamicWidgetIds) {
-    layout.widgetFunctions[widgetId] = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
+    if (isCommandWidgetId(widgetId)) {
+      layout.widgetFunctions[widgetId] = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
+    } else if (isSshWidgetId(widgetId)) {
+      layout.widgetFunctions[widgetId] = normalizeSshWidgetSettings(layout.widgetFunctions[widgetId]);
+    }
   }
+  layout.widgetFunctions.ssh = normalizeSshWidgetSettings(layout.widgetFunctions.ssh);
   layout.widgetFunctions.ddev.buttons = normalizeDdevButtons(
     layout.widgetFunctions.ddev.buttons || layout.widgetFunctions.ddev,
   );
@@ -1383,23 +1514,36 @@ function renderLauncherBody(fn) {
   `;
 }
 
-function renderSshBody(fn) {
-  const selectedProject = state.selectedProjectEntry.project;
-  const sshConfigs = resolveWidgets(selectedProject).ssh;
-  if (!Array.isArray(sshConfigs) || sshConfigs.length === 0) {
-    return `<p class="status-warn">Keine SSH-Verbindungen in der Konfiguration hinterlegt.</p>`;
+function renderSshBody(widgetId, fn) {
+  const sshFn = normalizeSshWidgetSettings(fn);
+  const allHosts = Array.isArray(state.projectData?.sshHosts) ? state.projectData.sshHosts : [];
+  if (!allHosts.length) {
+    return `<p class="status-warn">Keine Hosts in ~/.ssh/config gefunden.</p>`;
   }
 
-  const buttons = sshConfigs
-    .map((item, idx) => {
-      const label = item.label || `${item.username}@${item.host}`;
-      return `<button data-ssh="${idx}">${escapeHtml(label)}</button>`;
+  const hostMap = new Map(allHosts.map((entry) => [entry.alias, entry]));
+  const selected = sshFn.selectedHosts
+    .map((alias) => hostMap.get(alias))
+    .filter(Boolean);
+  if (!selected.length) {
+    return `<p class="status-warn">Keine Hosts ausgewaehlt.</p>`;
+  }
+
+  const buttons = selected
+    .map((entry) => {
+      const subtitle = [entry.user, entry.hostname].filter(Boolean).join("@");
+      return `
+        <div class="actions npm-row">
+          <button data-ssh-run="${escapeHtml(widgetId)}" data-ssh-host="${escapeHtml(entry.alias)}">${escapeHtml(entry.alias)}</button>
+          ${subtitle ? `<span class="meta">${escapeHtml(subtitle)}</span>` : ""}
+        </div>
+      `;
     })
     .join("");
 
   return `
-    <div class="actions">${buttons}</div>
-    ${fn.showHint ? `<p class="meta">Hinweis: Passwoerter werden nicht automatisiert uebergeben.</p>` : ""}
+    <div class="git-branch-list">${buttons}</div>
+    ${sshFn.showHint ? `<p class="meta">Hinweis: Passwoerter werden nicht automatisiert uebergeben.</p>` : ""}
   `;
 }
 
@@ -1456,10 +1600,16 @@ function getWidgetDefinitions() {
       available: Boolean(widgets.launcher),
       body: renderLauncherBody(fn.launcher || {}),
     },
-    { id: "ssh", title: "SSH", available: Boolean(widgets.ssh), body: renderSshBody(fn.ssh || {}) },
+    {
+      id: "ssh",
+      title: normalizeSshWidgetSettings(fn.ssh).title || "Remote-Widget",
+      available: Boolean(widgets.ssh),
+      body: renderSshBody("ssh", fn.ssh || {}),
+    },
     { id: "browser", title: "Browser", available: Boolean(widgets.browser), body: renderBrowserBody(fn.browser || {}) },
   ];
   const commandIds = (layout?.order || []).filter((id) => isCommandWidgetId(id));
+  const sshIds = (layout?.order || []).filter((id) => isSshWidgetId(id));
   const commandDefs = commandIds.map((id) => {
     const commandFn = normalizeCommandWidgetSettings(layout?.widgetFunctions?.[id]);
     return {
@@ -1469,7 +1619,13 @@ function getWidgetDefinitions() {
       body: renderCommandBody(id, commandFn),
     };
   });
-  return [...staticDefs, ...commandDefs];
+  const sshDefs = sshIds.map((id) => ({
+    id,
+    title: normalizeSshWidgetSettings(layout?.widgetFunctions?.[id]).title || "Remote-Widget",
+    available: true,
+    body: renderSshBody(id, layout?.widgetFunctions?.[id]),
+  }));
+  return [...staticDefs, ...commandDefs, ...sshDefs];
 }
 
 function renderDashboard() {
@@ -1765,7 +1921,6 @@ function bindConfigEditorEvents() {
 
 function bindDashboardEvents() {
   const selectedProject = state.selectedProjectEntry.project;
-  const selectedWidgets = resolveWidgets(selectedProject);
   const projectPath = selectedProject.path;
   const layout = getProjectLayoutState();
   const appDefaults = state.config?.appDefaults || defaultAppDefaults();
@@ -1935,14 +2090,25 @@ function bindDashboardEvents() {
     });
   });
 
-  document.querySelectorAll("[data-ssh]").forEach((button) => {
+  document.querySelectorAll("[data-ssh-run]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const idx = Number(button.getAttribute("data-ssh"));
-      const entry = selectedWidgets.ssh[idx];
-      const result = await window.dashboardApi.openSsh({
+      const widgetId = button.getAttribute("data-ssh-run");
+      const alias = button.getAttribute("data-ssh-host");
+      if (!widgetId || !alias) return;
+      const fn = normalizeSshWidgetSettings(getProjectLayoutState()?.widgetFunctions?.[widgetId]);
+      const allHosts = Array.isArray(state.projectData?.sshHosts) ? state.projectData.sshHosts : [];
+      const entry = allHosts.find((item) => item.alias === alias);
+      if (!entry) return;
+      const command = applyCommandTemplate(fn.commandTemplate, {
+        host: entry.alias || "",
+        user: entry.user || "",
+        hostname: entry.hostname || "",
+        port: entry.port || "",
+      });
+      const result = await window.dashboardApi.runProjectCommand({
         projectPath,
-        host: entry.host,
-        username: entry.username,
+        command,
+        runInTerminal: fn.runInTerminal !== false,
         appDefaults,
       });
       if (!result.ok) alert(result.error || "SSH konnte nicht gestartet werden.");

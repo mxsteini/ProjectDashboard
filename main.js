@@ -232,6 +232,74 @@ function isSafeSshToken(value) {
   return typeof value === "string" && /^[a-zA-Z0-9._-]+$/.test(value);
 }
 
+async function collectSshHosts() {
+  const sshDir = path.join(os.homedir(), ".ssh");
+  const candidateFiles = [path.join(sshDir, "config"), path.join(sshDir, "condig")];
+  let configPath = "";
+  for (const file of candidateFiles) {
+    if (existsSync(file)) {
+      configPath = file;
+      break;
+    }
+  }
+  if (!configPath) {
+    return [];
+  }
+
+  let raw = "";
+  try {
+    raw = await fs.readFile(configPath, "utf8");
+  } catch (_error) {
+    return [];
+  }
+
+  const entries = new Map();
+  let currentAliases = [];
+  const applyToCurrent = (key, value) => {
+    if (!currentAliases.length) return;
+    currentAliases.forEach((alias) => {
+      if (!entries.has(alias)) {
+        entries.set(alias, { alias, hostname: "", user: "", port: "" });
+      }
+      const row = entries.get(alias);
+      if (key === "hostname" && !row.hostname) row.hostname = value;
+      if (key === "user" && !row.user) row.user = value;
+      if (key === "port" && !row.port) row.port = value;
+    });
+  };
+
+  raw.split(/\r?\n/).forEach((line) => {
+    const withoutComment = line.replace(/(^|\s)#.*$/, "").trim();
+    if (!withoutComment) return;
+    const hostMatch = withoutComment.match(/^Host\s+(.+)$/i);
+    if (hostMatch) {
+      const aliases = hostMatch[1]
+        .split(/\s+/)
+        .map((item) => item.trim())
+        .filter((item) => item && !item.includes("*") && !item.includes("?") && !item.startsWith("!"));
+      currentAliases = aliases;
+      aliases.forEach((alias) => {
+        if (!entries.has(alias)) {
+          entries.set(alias, { alias, hostname: "", user: "", port: "" });
+        }
+      });
+      return;
+    }
+    const fieldMatch = withoutComment.match(/^([a-zA-Z][a-zA-Z0-9]*)\s+(.+)$/);
+    if (!fieldMatch) return;
+    const key = String(fieldMatch[1] || "").toLowerCase();
+    const value = String(fieldMatch[2] || "").trim();
+    if (!value) return;
+    if (["hostname", "user", "port"].includes(key)) {
+      applyToCurrent(key, value);
+    }
+  });
+
+  return Array.from(entries.values())
+    .filter((item) => item.alias)
+    .sort((a, b) => a.alias.localeCompare(b.alias));
+}
+
 async function getDiskUsage(projectPath) {
   if (process.platform === "win32") {
     return { ok: false, message: "Disk Usage via 'du' ist auf Windows nicht verfuegbar." };
@@ -598,11 +666,12 @@ ipcMain.handle("directory:pick", async (event, payload) => {
 ipcMain.handle("project:refresh", async (_event, project) => {
   try {
     const projectPath = project.path;
-    const [diskUsage, gitInfo, ddevStatus, urls] = await Promise.all([
+    const [diskUsage, gitInfo, ddevStatus, urls, sshHosts] = await Promise.all([
       getDiskUsage(projectPath),
       getGitInfo(projectPath),
       getDdevStatus(projectPath),
       collectProjectUrls(projectPath),
+      collectSshHosts(),
     ]);
 
     return {
@@ -612,6 +681,7 @@ ipcMain.handle("project:refresh", async (_event, project) => {
         gitInfo,
         ddevStatus,
         urls,
+        sshHosts,
       },
     };
   } catch (error) {
