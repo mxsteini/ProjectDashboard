@@ -1,8 +1,8 @@
-# Projektkonzept: ProjektLauncher Dashboard
+# Projektkonzept: ProjectDashboard
 
 ## 1. Zielbild
 
-Der ProjektLauncher ist eine Electron-App, die pro Softwareprojekt ein zentrales Dashboard bereitstellt.  
+ProjectDashboard ist eine Electron-App, die pro Softwareprojekt ein zentrales Dashboard bereitstellt.  
 Ziel ist es, häufige Entwicklungsaufgaben (Statuspruefung, Start/Stop lokaler Dienste, Git-Aktionen, Tool-Start) in einer einheitlichen Oberflaeche zu buendeln.
 
 ## 2. Problemstellung

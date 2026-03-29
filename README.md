@@ -1,4 +1,4 @@
-# ProjektLauncher
+# ProjectDashboard
 
 Electron-basierter Projekt-Dashboard-Launcher mit Widgets fuer:
 

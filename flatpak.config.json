@@ -1,8 +1,8 @@
 {
-  "id": "de.itb.projektlauncher",
-  "productName": "ProjektLauncher",
+  "id": "de.itb.projectdashboard",
+  "productName": "ProjectDashboard",
   "genericName": "Project Launcher",
-  "description": "ProjektLauncher Dashboard",
+  "description": "ProjectDashboard",
   "categories": [
     "Development",
     "Utility"
