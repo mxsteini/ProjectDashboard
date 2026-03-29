@@ -99,6 +99,15 @@ function defaultNpmButtons() {
   ];
 }
 
+function defaultDdevButtons() {
+  return [
+    { id: "ddev_status", label: "ddev status", command: "ddev status", runInTerminal: true },
+    { id: "ddev_start", label: "ddev start", command: "ddev start", runInTerminal: true },
+    { id: "ddev_stop", label: "ddev stop", command: "ddev stop", runInTerminal: true },
+    { id: "ddev_restart", label: "ddev restart", command: "ddev restart", runInTerminal: true },
+  ];
+}
+
 function resolveWidgets(project) {
   const defaults = defaultWidgets();
   const configured = project?.widgets || {};
@@ -409,12 +418,31 @@ function renderWidgetSettingsModal() {
     const definition = byId[widgetId];
     const fn = layout.widgetFunctions[widgetId] || {};
     if (widgetId === "ddev") {
+      const buttons = normalizeDdevButtons(fn.buttons || fn);
+      const rows = buttons
+        .map((item, index) => `
+          <div class="config-block">
+            <label>Label</label>
+            <input data-ddev-label="${index}" value="${escapeHtml(item.label)}" />
+            <label>Befehl</label>
+            <input data-ddev-command="${index}" value="${escapeHtml(item.command)}" />
+            <label><input type="checkbox" data-ddev-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
+            <button data-remove-ddev-btn="${index}" class="danger">Button entfernen</button>
+          </div>
+        `)
+        .join("");
       el.widgetSettingsContent.innerHTML = `
         <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="ddevAllowStatus" type="checkbox" ${fn.allowStatus ? "checked" : ""} /> Status Aktion</label>
-        <label><input id="ddevAllowStart" type="checkbox" ${fn.allowStart ? "checked" : ""} /> Start Aktion</label>
-        <label><input id="ddevAllowStop" type="checkbox" ${fn.allowStop ? "checked" : ""} /> Stop Aktion</label>
-        <label><input id="ddevAllowRestart" type="checkbox" ${fn.allowRestart ? "checked" : ""} /> Restart Aktion</label>
+        <p>Default: ddev status, ddev start, ddev stop, ddev restart (bearbeitbar)</p>
+        ${rows}
+        <div class="config-block">
+          <label>Neuer Button Label</label>
+          <input id="newDdevLabel" placeholder="z. B. ddev describe" />
+          <label>Neuer Befehl</label>
+          <input id="newDdevCommand" placeholder="ddev describe" />
+          <label><input type="checkbox" id="newDdevRunInTerminal" checked /> Im Terminal ausfuehren</label>
+          <button id="addDdevButtonBtn">Button hinzufuegen</button>
+        </div>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="ddev">Einstellungen speichern</button></div>
       `;
     } else if (widgetId === "git") {
@@ -546,10 +574,16 @@ function bindWidgetSettingsEvents() {
       const layout = getProjectLayoutState();
       const fn = layout.widgetFunctions[widgetId] || {};
       if (widgetId === "ddev") {
-        fn.allowStatus = Boolean(document.getElementById("ddevAllowStatus")?.checked);
-        fn.allowStart = Boolean(document.getElementById("ddevAllowStart")?.checked);
-        fn.allowStop = Boolean(document.getElementById("ddevAllowStop")?.checked);
-        fn.allowRestart = Boolean(document.getElementById("ddevAllowRestart")?.checked);
+        const labels = Array.from(document.querySelectorAll("[data-ddev-label]"));
+        const commands = Array.from(document.querySelectorAll("[data-ddev-command]"));
+        const terminals = Array.from(document.querySelectorAll("[data-ddev-terminal]"));
+        const merged = labels.map((labelNode, index) => ({
+          id: `ddev_custom_${index}`,
+          label: String(labelNode.value || "").trim() || `ddev command ${index + 1}`,
+          command: String(commands[index]?.value || "").trim(),
+          runInTerminal: Boolean(terminals[index]?.checked),
+        }));
+        fn.buttons = normalizeDdevButtons(merged);
       } else if (widgetId === "git") {
         fn.allowCheckout = Boolean(document.getElementById("gitAllowCheckout")?.checked);
         fn.showCurrentBranch = Boolean(document.getElementById("gitShowCurrentBranch")?.checked);
@@ -655,6 +689,45 @@ function bindWidgetSettingsEvents() {
       const current = normalizeNpmButtons(fn.buttons).filter((_, idx) => idx !== index);
       fn.buttons = normalizeNpmButtons(current);
       layout.widgetFunctions.npm = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  });
+
+  const addDdevButtonBtn = document.getElementById("addDdevButtonBtn");
+  if (addDdevButtonBtn) {
+    addDdevButtonBtn.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.ddev || { buttons: defaultDdevButtons() };
+      const label = String(document.getElementById("newDdevLabel")?.value || "").trim();
+      const command = String(document.getElementById("newDdevCommand")?.value || "").trim();
+      const runInTerminal = Boolean(document.getElementById("newDdevRunInTerminal")?.checked);
+      if (!command) return;
+      const current = normalizeDdevButtons(fn.buttons || fn);
+      current.push({
+        id: `ddev_custom_${Date.now()}`,
+        label: label || command,
+        command,
+        runInTerminal,
+      });
+      fn.buttons = normalizeDdevButtons(current);
+      layout.widgetFunctions.ddev = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-ddev-btn]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = Number(button.getAttribute("data-remove-ddev-btn"));
+      if (!Number.isFinite(index)) return;
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.ddev || { buttons: defaultDdevButtons() };
+      const current = normalizeDdevButtons(fn.buttons || fn).filter((_, idx) => idx !== index);
+      fn.buttons = normalizeDdevButtons(current);
+      layout.widgetFunctions.ddev = fn;
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
@@ -816,10 +889,7 @@ function baseWidgetFunctionSettings() {
       showPath: true,
     },
     ddev: {
-      allowStatus: true,
-      allowStart: true,
-      allowStop: true,
-      allowRestart: true,
+      buttons: defaultDdevButtons(),
     },
     disk: {},
     git: {
@@ -858,6 +928,32 @@ function normalizeNpmButtons(buttons) {
     }))
     .filter((item) => item.command.length > 0);
   return normalized.length ? normalized : defaultNpmButtons();
+}
+
+function normalizeDdevButtons(config) {
+  if (Array.isArray(config)) {
+    const normalized = config
+      .map((item, index) => ({
+        id: String(item?.id || `ddev_cmd_${index}`),
+        label: String(item?.label || item?.command || `ddev command ${index + 1}`),
+        command: String(item?.command || "").trim(),
+        runInTerminal: item?.runInTerminal !== false,
+      }))
+      .filter((item) => item.command.length > 0);
+    return normalized.length ? normalized : defaultDdevButtons();
+  }
+
+  // Backward compatibility for old allow flags.
+  if (config && typeof config === "object") {
+    const rows = [];
+    if (config.allowStatus !== false) rows.push({ id: "ddev_status", label: "ddev status", command: "ddev status", runInTerminal: true });
+    if (config.allowStart !== false) rows.push({ id: "ddev_start", label: "ddev start", command: "ddev start", runInTerminal: true });
+    if (config.allowStop !== false) rows.push({ id: "ddev_stop", label: "ddev stop", command: "ddev stop", runInTerminal: true });
+    if (config.allowRestart !== false) rows.push({ id: "ddev_restart", label: "ddev restart", command: "ddev restart", runInTerminal: true });
+    return rows.length ? rows : defaultDdevButtons();
+  }
+
+  return defaultDdevButtons();
 }
 
 function getFilebrowserDirectories(fn, projectPath) {
@@ -955,6 +1051,9 @@ function getProjectLayoutState() {
       ...(layout.widgetFunctions[widgetId] || {}),
     };
   }
+  layout.widgetFunctions.ddev.buttons = normalizeDdevButtons(
+    layout.widgetFunctions.ddev.buttons || layout.widgetFunctions.ddev,
+  );
   layout.widgetFunctions.npm.buttons = normalizeNpmButtons(layout.widgetFunctions.npm.buttons);
 
   return layout;
@@ -986,14 +1085,12 @@ function renderDdevBody(fn) {
   const ddev = state.projectData?.ddevStatus;
   const out = ddev?.stdout || ddev?.stderr || "Keine Ausgabe.";
   const cls = statusClass(Boolean(ddev?.ok));
-  const buttons = [];
-  if (fn.allowStatus) buttons.push(`<button data-ddev="status">Status</button>`);
-  if (fn.allowStart) buttons.push(`<button data-ddev="start">Start</button>`);
-  if (fn.allowStop) buttons.push(`<button data-ddev="stop">Stop</button>`);
-  if (fn.allowRestart) buttons.push(`<button data-ddev="restart">Restart</button>`);
+  const buttons = normalizeDdevButtons(fn?.buttons || fn)
+    .map((item) => `<button data-ddev-run="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`)
+    .join("");
   return `
     <p class="${cls}">${ddev?.ok ? "Status abrufbar" : "DDEV nicht verfuegbar oder Projekt nicht initialisiert"}</p>
-    <div class="actions">${buttons.join("") || `<span class="status-warn">Keine DDEV Aktionen aktiv.</span>`}</div>
+    <div class="actions">${buttons || `<span class="status-warn">Keine DDEV Aktionen aktiv.</span>`}</div>
     <pre>${escapeHtml(out)}</pre>
   `;
 }
@@ -1541,11 +1638,22 @@ function bindDashboardEvents() {
     });
   });
 
-  document.querySelectorAll("[data-ddev]").forEach((button) => {
+  document.querySelectorAll("[data-ddev-run]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const action = button.getAttribute("data-ddev");
-      const result = await window.dashboardApi.runDdev({ projectPath, action });
-      alert(result.ok ? result.stdout || "OK" : result.stderr || "Fehler");
+      const buttonId = button.getAttribute("data-ddev-run");
+      if (!buttonId) return;
+      const fn = getProjectLayoutState()?.widgetFunctions?.ddev || {};
+      const commandButton = normalizeDdevButtons(fn.buttons || fn).find((item) => item.id === buttonId);
+      if (!commandButton) return;
+      const result = await window.dashboardApi.runProjectCommand({
+        projectPath,
+        command: commandButton.command,
+        runInTerminal: commandButton.runInTerminal !== false,
+        appDefaults,
+      });
+      if (!result.ok) {
+        alert(result.error || "DDEV Kommando konnte nicht gestartet werden.");
+      }
       await refreshProject();
     });
   });
