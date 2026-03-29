@@ -45,6 +45,11 @@ async function ensureConfig(configPath) {
   await fs.mkdir(dir, { recursive: true });
   if (!existsSync(configPath)) {
     const starterConfig = {
+      appDefaults: {
+        terminalCommand: "",
+        fileExplorerCommand: "",
+        browserCommand: "",
+      },
       customers: [
         {
           name: "Beispiel Kunde",
@@ -63,6 +68,15 @@ async function ensureConfig(configPath) {
     };
     await fs.writeFile(configPath, JSON.stringify(starterConfig, null, 2), "utf8");
   }
+}
+
+function normalizeAppDefaults(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    terminalCommand: String(source.terminalCommand || "").trim(),
+    fileExplorerCommand: String(source.fileExplorerCommand || "").trim(),
+    browserCommand: String(source.browserCommand || "").trim(),
+  };
 }
 
 async function ensureUiState(uiStatePath) {
@@ -184,7 +198,10 @@ function normalizeConfig(input) {
     };
   });
 
-  return { customers };
+  return {
+    customers,
+    appDefaults: normalizeAppDefaults(input.appDefaults),
+  };
 }
 
 async function saveConfig(config) {
@@ -333,14 +350,107 @@ async function collectProjectUrls(projectPath) {
   return Array.from(urls);
 }
 
-function openTerminalAt(projectPath, commandText) {
+async function commandExists(binaryName) {
+  const result = await runCommand("bash", ["-lc", `command -v ${binaryName}`]);
+  return result.ok && Boolean(result.stdout);
+}
+
+function spawnDetached(binaryName, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binaryName, args, { detached: true, stdio: "ignore" });
+    let settled = false;
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    });
+    child.once("spawn", () => {
+      if (settled) return;
+      settled = true;
+      child.unref();
+      resolve(true);
+    });
+  });
+}
+
+function terminalScript(projectPath, commandText) {
+  const quotedPath = bashQuote(projectPath);
+  return commandText ? `cd ${quotedPath} && ${commandText}; exec bash` : `cd ${quotedPath}; exec bash`;
+}
+
+async function runDetachedShell(commandLine) {
+  await spawnDetached("bash", ["-lc", commandLine]);
+}
+
+function applyTemplate(template, values, fallbackAppendValue) {
+  let resolved = template;
+  let usedPlaceholder = false;
+  for (const [key, value] of Object.entries(values)) {
+    const token = `{${key}}`;
+    if (resolved.includes(token)) {
+      resolved = resolved.replaceAll(token, value);
+      usedPlaceholder = true;
+    }
+  }
+  if (!usedPlaceholder && fallbackAppendValue) {
+    resolved = `${resolved} ${fallbackAppendValue}`;
+  }
+  return resolved.trim();
+}
+
+async function openTerminalAt(projectPath, commandText, appDefaults = {}) {
+  const terminalTemplate = String(appDefaults.terminalCommand || "").trim();
+  if (terminalTemplate) {
+    try {
+      const resolved = applyTemplate(
+        terminalTemplate,
+        {
+          path: bashQuote(projectPath),
+          command: commandText ? commandText : "",
+        },
+        bashQuote(projectPath),
+      );
+      await runDetachedShell(resolved);
+      return;
+    } catch (_error) {
+      // Fall through to platform defaults.
+    }
+  }
+
   if (process.platform === "linux") {
-    const terminal = "x-terminal-emulator";
-    const quotedPath = bashQuote(projectPath);
-    const args = commandText
-      ? ["-e", `bash -lc "cd ${quotedPath} && ${commandText}; exec bash"`]
-      : ["-e", `bash -lc "cd ${quotedPath}; exec bash"`];
-    return spawn(terminal, args, { detached: true, stdio: "ignore" }).unref();
+    const script = terminalScript(projectPath, commandText);
+    const candidates = [
+      { binary: "x-terminal-emulator", args: ["-e", "bash", "-lc", script] },
+      { binary: "gnome-terminal", args: ["--", "bash", "-lc", script] },
+      { binary: "konsole", args: ["-e", "bash", "-lc", script] },
+      { binary: "xfce4-terminal", args: ["-e", `bash -lc "${script.replaceAll('"', '\\"')}"`] },
+      { binary: "kitty", args: ["bash", "-lc", script] },
+      { binary: "alacritty", args: ["-e", "bash", "-lc", script] },
+      { binary: "xterm", args: ["-e", "bash", "-lc", script] },
+    ];
+
+    const available = [];
+    for (const candidate of candidates) {
+      if (await commandExists(candidate.binary)) {
+        available.push(candidate);
+      }
+    }
+
+    const errors = [];
+    for (const candidate of available) {
+      try {
+        await spawnDetached(candidate.binary, candidate.args);
+        return;
+      } catch (error) {
+        errors.push(`${candidate.binary}: ${error.message}`);
+      }
+    }
+
+    throw new Error(
+      available.length
+        ? `Terminal konnte nicht gestartet werden. ${errors.join(" | ")}`
+        : "Kein kompatibles Terminal gefunden (x-terminal-emulator, gnome-terminal, konsole, xfce4-terminal, kitty, alacritty, xterm).",
+    );
   }
 
   if (process.platform === "darwin") {
@@ -348,21 +458,27 @@ function openTerminalAt(projectPath, commandText) {
     const script = commandText
       ? `tell app "Terminal" to do script "cd ${quotedPath} && ${commandText}"`
       : `tell app "Terminal" to do script "cd ${quotedPath}"`;
-    return execFile("osascript", ["-e", script], () => {});
+    return new Promise((resolve, reject) => {
+      execFile("osascript", ["-e", script], (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
   }
 
   if (process.platform === "win32") {
     const cmd = commandText ? `cd /d "${projectPath}" && ${commandText}` : `cd /d "${projectPath}"`;
-    return spawn("cmd.exe", ["/c", "start", "cmd.exe", "/k", cmd], {
-      detached: true,
-      stdio: "ignore",
-    }).unref();
+    await spawnDetached("cmd.exe", ["/c", "start", "cmd.exe", "/k", cmd]);
+    return;
   }
 
-  return null;
+  throw new Error(`Terminalstart auf Plattform ${process.platform} nicht unterstuetzt.`);
 }
 
-function openProgram(projectPath, program) {
+async function openProgram(projectPath, program, appDefaults = {}) {
   if (program === "cursor") {
     return runCommand("cursor", [projectPath]);
   }
@@ -370,13 +486,19 @@ function openProgram(projectPath, program) {
     return runCommand("code", [projectPath]);
   }
   if (program === "explorer") {
+    const explorerTemplate = String(appDefaults.fileExplorerCommand || "").trim();
+    if (explorerTemplate) {
+      const resolved = applyTemplate(explorerTemplate, { path: bashQuote(projectPath) }, bashQuote(projectPath));
+      await runDetachedShell(resolved);
+      return;
+    }
     return shell.openPath(projectPath);
   }
   if (program === "terminal") {
-    openTerminalAt(projectPath, "");
-    return Promise.resolve();
+    await openTerminalAt(projectPath, "", appDefaults);
+    return;
   }
-  return Promise.reject(new Error(`Unbekanntes Programm: ${program}`));
+  throw new Error(`Unbekanntes Programm: ${program}`);
 }
 
 let windowStateSaveTimer = null;
@@ -505,37 +627,66 @@ ipcMain.handle("git:run", async (_event, { projectPath, action, branch }) => {
   return runGitAction(projectPath, action, branch);
 });
 
-ipcMain.handle("launcher:open", async (_event, { projectPath, program }) => {
+ipcMain.handle("command:run", async (_event, { projectPath, command, runInTerminal = true, appDefaults = {} }) => {
   try {
-    await openProgram(projectPath, program);
+    const cmd = String(command || "").trim();
+    if (!projectPath || !cmd) {
+      return { ok: false, error: "Projektpfad oder Kommando fehlt." };
+    }
+    if (runInTerminal !== false) {
+      await openTerminalAt(projectPath, cmd, appDefaults);
+      return { ok: true, message: "Kommando im Terminal gestartet." };
+    }
+    return runCommand("bash", ["-lc", cmd], { cwd: projectPath });
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
+ipcMain.handle("launcher:open", async (_event, { projectPath, program, appDefaults = {} }) => {
+  try {
+    await openProgram(projectPath, program, appDefaults);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message };
   }
 });
 
-ipcMain.handle("path:open", async (_event, { targetPath }) => {
+ipcMain.handle("path:open", async (_event, { targetPath, appDefaults = {} }) => {
   try {
     if (!targetPath || typeof targetPath !== "string") {
       return { ok: false, error: "Ungueltiger Pfad." };
     }
-    await shell.openPath(targetPath);
+    const explorerTemplate = String(appDefaults.fileExplorerCommand || "").trim();
+    if (explorerTemplate) {
+      const resolved = applyTemplate(explorerTemplate, { path: bashQuote(targetPath) }, bashQuote(targetPath));
+      await runDetachedShell(resolved);
+    } else {
+      await shell.openPath(targetPath);
+    }
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message };
   }
 });
 
-ipcMain.handle("browser:open", async (_event, { url }) => {
+ipcMain.handle("browser:open", async (_event, { url, appDefaults = {} }) => {
   try {
-    await shell.openExternal(url);
+    const browserTemplate = String(appDefaults.browserCommand || "").trim();
+    if (browserTemplate) {
+      const safeUrl = bashQuote(url);
+      const resolved = applyTemplate(browserTemplate, { url: safeUrl }, safeUrl);
+      await runDetachedShell(resolved);
+    } else {
+      await shell.openExternal(url);
+    }
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message };
   }
 });
 
-ipcMain.handle("ssh:open", async (_event, { projectPath, host, username }) => {
+ ipcMain.handle("ssh:open", async (_event, { projectPath, host, username, appDefaults = {} }) => {
   try {
     if (!host || !username) {
       return { ok: false, error: "Host und Username sind erforderlich." };
@@ -543,7 +694,7 @@ ipcMain.handle("ssh:open", async (_event, { projectPath, host, username }) => {
     if (!isSafeSshToken(host) || !isSafeSshToken(username)) {
       return { ok: false, error: "Host oder Username enthalten ungueltige Zeichen." };
     }
-    openTerminalAt(projectPath, `ssh ${username}@${host}`);
+    await openTerminalAt(projectPath, `ssh ${username}@${host}`, appDefaults);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error.message };

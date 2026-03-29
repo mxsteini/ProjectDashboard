@@ -17,6 +17,7 @@ const state = {
   collapsedCustomers: new Set(),
   collapsedManagers: new Set(),
   draggingWidgetId: "",
+  configEditorTab: "structure",
 };
 
 const el = {
@@ -52,6 +53,7 @@ function defaultWidgets() {
     ddev: true,
     diskUsage: true,
     git: true,
+    npm: true,
     filebrowser: true,
     ssh: [],
     launcher: {
@@ -62,6 +64,39 @@ function defaultWidgets() {
     },
     browser: true,
   };
+}
+
+function defaultAppDefaults() {
+  return {
+    terminalCommand: "",
+    fileExplorerCommand: "",
+    browserCommand: "",
+  };
+}
+
+function ensureAppDefaultsInState() {
+  if (!state.config) return;
+  state.config.appDefaults = {
+    ...defaultAppDefaults(),
+    ...(state.config.appDefaults || {}),
+  };
+}
+
+function defaultNpmButtons() {
+  return [
+    {
+      id: "npm_install",
+      label: "npm install",
+      command: "npm install",
+      runInTerminal: true,
+    },
+    {
+      id: "npm_start",
+      label: "npm start",
+      command: "npm start",
+      runInTerminal: true,
+    },
+  ];
 }
 
 function resolveWidgets(project) {
@@ -152,10 +187,20 @@ function projectOptions(customerName, managerName, currentRef = "") {
 function renderConfigEditor() {
   const firstCustomer = state.config.customers[0]?.name || "";
   const firstManager = state.config.customers[0]?.projectManagers?.[0]?.name || "";
+  const defaults = state.config.appDefaults || defaultAppDefaults();
+  const activeStructure = state.configEditorTab === "structure";
+  const activeDefaults = state.configEditorTab === "defaults";
 
   el.configEditor.innerHTML = `
     <div class="config-block">
+      <div class="widget-settings-tabbar">
+        <button class="widget-settings-tab ${activeStructure ? "active" : ""}" data-config-tab="structure">Struktur</button>
+        <button class="widget-settings-tab ${activeDefaults ? "active" : ""}" data-config-tab="defaults">Defaults</button>
+      </div>
       <div class="config-form">
+        ${
+          activeStructure
+            ? `
         <label>Kontext (Kunde und Projektmanager)</label>
         <select id="customerSelect">${customerOptions(firstCustomer)}</select>
         <select id="managerSelect">${managerOptions(firstCustomer, firstManager)}</select>
@@ -178,6 +223,21 @@ function renderConfigEditor() {
         <button id="deleteProjectBtn" class="danger">Projekt loeschen</button>
 
         <p id="configMessage" class="meta">Struktur: Kunde -> Projektmanager -> Projekt</p>
+        `
+            : `
+        <label>Default Terminal Kommando</label>
+        <input id="defaultTerminalCommandInput" placeholder='z. B. gnome-terminal -- bash -lc "cd {path}; {command}; exec bash"' value="${escapeHtml(defaults.terminalCommand)}" />
+
+        <label>Default Fileexplorer Kommando</label>
+        <input id="defaultExplorerCommandInput" placeholder='z. B. nautilus {path}' value="${escapeHtml(defaults.fileExplorerCommand)}" />
+
+        <label>Default Browser Kommando</label>
+        <input id="defaultBrowserCommandInput" placeholder='z. B. firefox {url}' value="${escapeHtml(defaults.browserCommand)}" />
+
+        <button id="saveAppDefaultsBtn">Defaults speichern</button>
+        <p id="configMessage" class="meta">Platzhalter: {path}, {command}, {url}</p>
+        `
+        }
       </div>
     </div>
   `;
@@ -364,6 +424,36 @@ function renderWidgetSettingsModal() {
         <label><input id="gitShowCurrentBranch" type="checkbox" ${fn.showCurrentBranch ? "checked" : ""} /> Aktiven Branch markieren</label>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="git">Einstellungen speichern</button></div>
       `;
+    } else if (widgetId === "npm") {
+      const buttons = normalizeNpmButtons(fn.buttons);
+      const rows = buttons
+        .map((item, index) => {
+          return `
+            <div class="config-block">
+              <label>Label</label>
+              <input data-npm-label="${index}" value="${escapeHtml(item.label)}" />
+              <label>Befehl</label>
+              <input data-npm-command="${index}" value="${escapeHtml(item.command)}" />
+              <label><input type="checkbox" data-npm-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
+              <button data-remove-npm-btn="${index}" class="danger">Button entfernen</button>
+            </div>
+          `;
+        })
+        .join("");
+      el.widgetSettingsContent.innerHTML = `
+        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
+        <p>Default: npm install, npm start (konfigurierbar)</p>
+        ${rows}
+        <div class="config-block">
+          <label>Neuer Button Label</label>
+          <input id="newNpmLabel" placeholder="z. B. npm test" />
+          <label>Neuer Befehl</label>
+          <input id="newNpmCommand" placeholder="npm test" />
+          <label><input type="checkbox" id="newNpmRunInTerminal" checked /> Im Terminal ausfuehren</label>
+          <button id="addNpmButtonBtn">Button hinzufuegen</button>
+        </div>
+        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="npm">Einstellungen speichern</button></div>
+      `;
     } else if (widgetId === "filebrowser") {
       const selectedProject = state.selectedProjectEntry.project;
       const directories = getFilebrowserDirectories(fn, selectedProject.path);
@@ -463,6 +553,17 @@ function bindWidgetSettingsEvents() {
       } else if (widgetId === "git") {
         fn.allowCheckout = Boolean(document.getElementById("gitAllowCheckout")?.checked);
         fn.showCurrentBranch = Boolean(document.getElementById("gitShowCurrentBranch")?.checked);
+      } else if (widgetId === "npm") {
+        const labels = Array.from(document.querySelectorAll("[data-npm-label]"));
+        const commands = Array.from(document.querySelectorAll("[data-npm-command]"));
+        const terminals = Array.from(document.querySelectorAll("[data-npm-terminal]"));
+        const merged = labels.map((labelNode, index) => ({
+          id: `npm_custom_${index}`,
+          label: String(labelNode.value || "").trim() || `npm command ${index + 1}`,
+          command: String(commands[index]?.value || "").trim(),
+          runInTerminal: Boolean(terminals[index]?.checked),
+        }));
+        fn.buttons = normalizeNpmButtons(merged);
       } else if (widgetId === "launcher") {
         fn.allowCursor = Boolean(document.getElementById("launcherAllowCursor")?.checked);
         fn.allowVscode = Boolean(document.getElementById("launcherAllowVscode")?.checked);
@@ -515,6 +616,45 @@ function bindWidgetSettingsEvents() {
       const fn = layout.widgetFunctions.filebrowser || { directories: [] };
       fn.directories = (Array.isArray(fn.directories) ? fn.directories : []).filter((dir) => dir !== target);
       layout.widgetFunctions.filebrowser = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  });
+
+  const addNpmButtonBtn = document.getElementById("addNpmButtonBtn");
+  if (addNpmButtonBtn) {
+    addNpmButtonBtn.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.npm || { buttons: defaultNpmButtons() };
+      const label = String(document.getElementById("newNpmLabel")?.value || "").trim();
+      const command = String(document.getElementById("newNpmCommand")?.value || "").trim();
+      const runInTerminal = Boolean(document.getElementById("newNpmRunInTerminal")?.checked);
+      if (!command) return;
+      const current = normalizeNpmButtons(fn.buttons);
+      current.push({
+        id: `npm_custom_${Date.now()}`,
+        label: label || command,
+        command,
+        runInTerminal,
+      });
+      fn.buttons = normalizeNpmButtons(current);
+      layout.widgetFunctions.npm = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-npm-btn]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = Number(button.getAttribute("data-remove-npm-btn"));
+      if (!Number.isFinite(index)) return;
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.npm || { buttons: defaultNpmButtons() };
+      const current = normalizeNpmButtons(fn.buttons).filter((_, idx) => idx !== index);
+      fn.buttons = normalizeNpmButtons(current);
+      layout.widgetFunctions.npm = fn;
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
@@ -686,6 +826,9 @@ function baseWidgetFunctionSettings() {
       allowCheckout: true,
       showCurrentBranch: true,
     },
+    npm: {
+      buttons: defaultNpmButtons(),
+    },
     filebrowser: {
       directories: [],
     },
@@ -702,6 +845,19 @@ function baseWidgetFunctionSettings() {
       showSourceHint: true,
     },
   };
+}
+
+function normalizeNpmButtons(buttons) {
+  const source = Array.isArray(buttons) ? buttons : defaultNpmButtons();
+  const normalized = source
+    .map((item, index) => ({
+      id: String(item?.id || `npm_cmd_${index}`),
+      label: String(item?.label || item?.command || `npm command ${index + 1}`),
+      command: String(item?.command || "").trim(),
+      runInTerminal: item?.runInTerminal !== false,
+    }))
+    .filter((item) => item.command.length > 0);
+  return normalized.length ? normalized : defaultNpmButtons();
 }
 
 function getFilebrowserDirectories(fn, projectPath) {
@@ -750,7 +906,7 @@ function getProjectLayoutState() {
 
   if (!state.uiState.dashboardLayouts[key]) {
     state.uiState.dashboardLayouts[key] = {
-      order: ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"],
+      order: ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"],
       grid: {
         columns: 6,
         gap: 12,
@@ -760,6 +916,7 @@ function getProjectLayoutState() {
         ddev: baseWidgetState(),
         disk: baseWidgetState(),
         git: baseWidgetState(),
+        npm: baseWidgetState(),
         filebrowser: baseWidgetState(),
         launcher: baseWidgetState(),
         ssh: baseWidgetState(),
@@ -776,7 +933,7 @@ function getProjectLayoutState() {
   };
 
   layout.widgets = layout.widgets || {};
-  for (const id of ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"]) {
+  for (const id of ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"]) {
     const existing = layout.widgets[id] || {};
     layout.widgets[id] = {
       visible: typeof existing.visible === "boolean" ? existing.visible : true,
@@ -787,7 +944,7 @@ function getProjectLayoutState() {
   }
 
   if (!Array.isArray(layout.order)) {
-    layout.order = ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"];
+    layout.order = ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"];
   }
 
   const functionDefaults = baseWidgetFunctionSettings();
@@ -798,6 +955,7 @@ function getProjectLayoutState() {
       ...(layout.widgetFunctions[widgetId] || {}),
     };
   }
+  layout.widgetFunctions.npm.buttons = normalizeNpmButtons(layout.widgetFunctions.npm.buttons);
 
   return layout;
 }
@@ -881,6 +1039,22 @@ function renderGitBody(fn) {
     <p class="${cls}">Lokale Branches</p>
     <div class="git-branch-list">${rows}</div>
   `;
+}
+
+function renderNpmBody(fn) {
+  const buttons = normalizeNpmButtons(fn?.buttons);
+  const rows = buttons
+    .map((item) => {
+      const mode = item.runInTerminal ? "Terminal" : "Inline";
+      return `
+        <div class="actions npm-row">
+          <button data-npm-run="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
+          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
+        </div>
+      `;
+    })
+    .join("");
+  return `<div class="git-branch-list">${rows}</div>`;
 }
 
 function renderFilebrowserBody(fn) {
@@ -981,6 +1155,7 @@ function getWidgetDefinitions() {
     { id: "ddev", title: "DDEV", available: Boolean(widgets.ddev), body: renderDdevBody(fn.ddev || {}) },
     { id: "disk", title: "Disk Usage", available: Boolean(widgets.diskUsage), body: renderDiskBody() },
     { id: "git", title: "Git", available: Boolean(widgets.git), body: renderGitBody(fn.git || {}) },
+    { id: "npm", title: "npm", available: Boolean(widgets.npm), body: renderNpmBody(fn.npm || {}) },
     {
       id: "filebrowser",
       title: "Filebrowser",
@@ -1074,6 +1249,35 @@ function bindConfigEditorEvents() {
   const customerSelect = document.getElementById("customerSelect");
   const managerSelect = document.getElementById("managerSelect");
   const projectDeleteSelect = document.getElementById("projectDeleteSelect");
+  const configTabButtons = document.querySelectorAll("[data-config-tab]");
+
+  configTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = button.getAttribute("data-config-tab");
+      if (!tab) return;
+      state.configEditorTab = tab;
+      renderConfigEditor();
+    });
+  });
+
+  if (state.configEditorTab === "defaults") {
+    const saveAppDefaultsBtn = document.getElementById("saveAppDefaultsBtn");
+    if (saveAppDefaultsBtn) {
+      saveAppDefaultsBtn.addEventListener("click", async () => {
+        ensureAppDefaultsInState();
+        state.config.appDefaults = {
+          terminalCommand: String(document.getElementById("defaultTerminalCommandInput")?.value || "").trim(),
+          fileExplorerCommand: String(document.getElementById("defaultExplorerCommandInput")?.value || "").trim(),
+          browserCommand: String(document.getElementById("defaultBrowserCommandInput")?.value || "").trim(),
+        };
+        if (await persistConfig()) {
+          setConfigMessage("Defaults gespeichert.");
+          renderConfigEditor();
+        }
+      });
+    }
+    return;
+  }
 
   function refreshContextDependentSelects() {
     const customerName = customerSelect.value;
@@ -1264,6 +1468,7 @@ function bindDashboardEvents() {
   const selectedWidgets = resolveWidgets(selectedProject);
   const projectPath = selectedProject.path;
   const layout = getProjectLayoutState();
+  const appDefaults = state.config?.appDefaults || defaultAppDefaults();
 
   const refresh = document.getElementById("refreshDashboard");
   if (refresh) {
@@ -1354,10 +1559,29 @@ function bindDashboardEvents() {
     });
   });
 
+  document.querySelectorAll("[data-npm-run]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const buttonId = button.getAttribute("data-npm-run");
+      if (!buttonId) return;
+      const fn = getProjectLayoutState()?.widgetFunctions?.npm || {};
+      const commandButton = normalizeNpmButtons(fn.buttons).find((item) => item.id === buttonId);
+      if (!commandButton) return;
+      const result = await window.dashboardApi.runProjectCommand({
+        projectPath,
+        command: commandButton.command,
+        runInTerminal: commandButton.runInTerminal !== false,
+        appDefaults,
+      });
+      if (!result.ok) {
+        alert(result.error || "Kommando konnte nicht gestartet werden.");
+      }
+    });
+  });
+
   document.querySelectorAll("[data-launcher]").forEach((button) => {
     button.addEventListener("click", async () => {
       const program = button.getAttribute("data-launcher");
-      const result = await window.dashboardApi.openLauncher({ projectPath, program });
+      const result = await window.dashboardApi.openLauncher({ projectPath, program, appDefaults });
       if (!result.ok) alert(result.error || "Programm konnte nicht geoeffnet werden.");
     });
   });
@@ -1366,7 +1590,7 @@ function bindDashboardEvents() {
     button.addEventListener("click", async () => {
       const targetPath = button.getAttribute("data-open-path");
       if (!targetPath) return;
-      const result = await window.dashboardApi.openPath({ targetPath });
+      const result = await window.dashboardApi.openPath({ targetPath, appDefaults });
       if (!result.ok) alert(result.error || "Verzeichnis konnte nicht geoeffnet werden.");
     });
   });
@@ -1375,7 +1599,7 @@ function bindDashboardEvents() {
     button.addEventListener("click", async () => {
       const idx = Number(button.getAttribute("data-url"));
       const url = state.projectData.urls[idx];
-      const result = await window.dashboardApi.openBrowserUrl({ url });
+      const result = await window.dashboardApi.openBrowserUrl({ url, appDefaults });
       if (!result.ok) alert(result.error || "URL konnte nicht geoeffnet werden.");
     });
   });
@@ -1388,6 +1612,7 @@ function bindDashboardEvents() {
         projectPath,
         host: entry.host,
         username: entry.username,
+        appDefaults,
       });
       if (!result.ok) alert(result.error || "SSH konnte nicht gestartet werden.");
     });
@@ -1409,6 +1634,7 @@ async function init() {
 
   state.configPath = result.configPath;
   state.config = result.config;
+  ensureAppDefaultsInState();
   el.configMeta.textContent = `Konfiguration: ${state.configPath}`;
 
   const uiStateResult = await window.dashboardApi.getUiState();

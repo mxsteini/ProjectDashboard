@@ -347,6 +347,10 @@ select {
   fill: currentColor;
 }
 
+.npm-row {
+  align-items: center;
+}
+
 button {
   border: 1px solid #334155;
   background: var(--panel-2);

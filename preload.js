@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("dashboardApi", {
   refreshProject: (project) => ipcRenderer.invoke("project:refresh", project),
   runDdev: (payload) => ipcRenderer.invoke("ddev:run", payload),
   runGit: (payload) => ipcRenderer.invoke("git:run", payload),
+  runProjectCommand: (payload) => ipcRenderer.invoke("command:run", payload),
   openLauncher: (payload) => ipcRenderer.invoke("launcher:open", payload),
   openPath: (payload) => ipcRenderer.invoke("path:open", payload),
   openBrowserUrl: (payload) => ipcRenderer.invoke("browser:open", payload),
