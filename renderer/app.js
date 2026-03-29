@@ -99,6 +99,23 @@ function defaultNpmButtons() {
   ];
 }
 
+const COMMAND_WIDGET_PREFIX = "command::";
+
+function isCommandWidgetId(widgetId) {
+  return typeof widgetId === "string" && widgetId.startsWith(COMMAND_WIDGET_PREFIX);
+}
+
+function createCommandWidgetId() {
+  return `${COMMAND_WIDGET_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultCommandWidgetSettings() {
+  return {
+    title: "Command",
+    buttons: [],
+  };
+}
+
 function defaultDdevButtons() {
   return [
     { id: "ddev_status", label: "ddev status", command: "ddev status", runInTerminal: true },
@@ -305,22 +322,38 @@ function getHiddenWidgets() {
 }
 
 function updateAddWidgetButtonState() {
-  const hidden = getHiddenWidgets();
   const hasProject = Boolean(state.selectedProjectEntry);
   el.openAddWidgetModalBtn.disabled = !hasProject;
   el.openAddWidgetModalBtn.style.display = hasProject ? "inline-flex" : "none";
-  el.openAddWidgetModalBtn.title = hidden.length ? "Widget hinzufuegen" : "Keine weiteren Widgets verfuegbar";
+  el.openAddWidgetModalBtn.title = "Widget hinzufuegen";
 }
 
 function renderAddWidgetModal() {
   const hidden = getHiddenWidgets();
-  if (!hidden.length) {
-    el.addWidgetList.innerHTML = `<p class="status-warn">Keine ausgeblendeten Widgets verfuegbar.</p>`;
-    return;
-  }
-  el.addWidgetList.innerHTML = hidden
+  const hiddenButtons = hidden
     .map((widget) => `<button data-add-widget="${escapeHtml(widget.id)}">${escapeHtml(widget.title)}</button>`)
     .join("");
+  el.addWidgetList.innerHTML = `
+    <button data-add-command-widget="true">Command Widget hinzufuegen</button>
+    ${hiddenButtons || `<p class="status-warn">Keine weiteren ausgeblendeten Widgets verfuegbar.</p>`}
+  `;
+  const addCommandWidgetButton = el.addWidgetList.querySelector("[data-add-command-widget]");
+  if (addCommandWidgetButton) {
+    addCommandWidgetButton.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const widgetId = createCommandWidgetId();
+      layout.order.push(widgetId);
+      layout.widgets[widgetId] = {
+        ...baseWidgetState(),
+        visible: true,
+      };
+      layout.widgetFunctions[widgetId] = defaultCommandWidgetSettings();
+      await persistUiState();
+      closeAddWidgetModal();
+      renderDashboard();
+      openWidgetSettingsModal(widgetId, "widget");
+    });
+  }
   el.addWidgetList.querySelectorAll("[data-add-widget]").forEach((button) => {
     button.addEventListener("click", async () => {
       const widgetId = button.getAttribute("data-add-widget");
@@ -485,6 +518,37 @@ function renderWidgetSettingsModal() {
         </div>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="npm">Einstellungen speichern</button></div>
       `;
+    } else if (isCommandWidgetId(widgetId)) {
+      const commandFn = normalizeCommandWidgetSettings(fn);
+      const rows = commandFn.buttons
+        .map((item, index) => {
+          return `
+            <div class="config-block">
+              <label>Label</label>
+              <input data-command-label="${index}" value="${escapeHtml(item.label)}" />
+              <label>Befehl</label>
+              <input data-command-command="${index}" value="${escapeHtml(item.command)}" />
+              <label><input type="checkbox" data-command-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
+              <button data-remove-command-btn="${index}" class="danger">Button entfernen</button>
+            </div>
+          `;
+        })
+        .join("");
+      el.widgetSettingsContent.innerHTML = `
+        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
+        <label>Widget Titel</label>
+        <input id="commandWidgetTitle" value="${escapeHtml(commandFn.title)}" placeholder="Command" />
+        ${rows}
+        <div class="config-block">
+          <label>Neuer Button Label</label>
+          <input id="newCommandLabel" placeholder="z. B. Build" />
+          <label>Neuer Befehl</label>
+          <input id="newCommandCommand" placeholder="npm run build" />
+          <label><input type="checkbox" id="newCommandRunInTerminal" checked /> Im Terminal ausfuehren</label>
+          <button id="addCommandButtonBtn">Button hinzufuegen</button>
+        </div>
+        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
+      `;
     } else if (widgetId === "filebrowser") {
       const selectedProject = state.selectedProjectEntry.project;
       const directories = getFilebrowserDirectories(fn, selectedProject.path);
@@ -603,6 +667,18 @@ function bindWidgetSettingsEvents() {
           runInTerminal: Boolean(terminals[index]?.checked),
         }));
         fn.buttons = normalizeNpmButtons(merged);
+      } else if (isCommandWidgetId(widgetId)) {
+        const labels = Array.from(document.querySelectorAll("[data-command-label]"));
+        const commands = Array.from(document.querySelectorAll("[data-command-command]"));
+        const terminals = Array.from(document.querySelectorAll("[data-command-terminal]"));
+        const merged = labels.map((labelNode, index) => ({
+          id: `command_custom_${index}`,
+          label: String(labelNode.value || "").trim() || `Command ${index + 1}`,
+          command: String(commands[index]?.value || "").trim(),
+          runInTerminal: Boolean(terminals[index]?.checked),
+        }));
+        fn.title = String(document.getElementById("commandWidgetTitle")?.value || "").trim() || "Command";
+        fn.buttons = normalizeCommandButtons(merged);
       } else if (widgetId === "launcher") {
         fn.allowCursor = Boolean(document.getElementById("launcherAllowCursor")?.checked);
         fn.allowVscode = Boolean(document.getElementById("launcherAllowVscode")?.checked);
@@ -655,6 +731,51 @@ function bindWidgetSettingsEvents() {
       const fn = layout.widgetFunctions.filebrowser || { directories: [] };
       fn.directories = (Array.isArray(fn.directories) ? fn.directories : []).filter((dir) => dir !== target);
       layout.widgetFunctions.filebrowser = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  });
+
+  const addCommandButtonBtn = document.getElementById("addCommandButtonBtn");
+  if (addCommandButtonBtn) {
+    addCommandButtonBtn.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const widgetId = state.uiState.dashboardSettingsActiveWidget;
+      if (!isCommandWidgetId(widgetId)) return;
+      const fn = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
+      const label = String(document.getElementById("newCommandLabel")?.value || "").trim();
+      const command = String(document.getElementById("newCommandCommand")?.value || "").trim();
+      const runInTerminal = Boolean(document.getElementById("newCommandRunInTerminal")?.checked);
+      if (!command) return;
+      const current = normalizeCommandButtons(fn.buttons);
+      current.push({
+        id: `command_custom_${Date.now()}`,
+        label: label || command,
+        command,
+        runInTerminal,
+      });
+      fn.buttons = normalizeCommandButtons(current);
+      fn.title = String(document.getElementById("commandWidgetTitle")?.value || fn.title || "Command").trim() || "Command";
+      layout.widgetFunctions[widgetId] = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-command-btn]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = Number(button.getAttribute("data-remove-command-btn"));
+      if (!Number.isFinite(index)) return;
+      const layout = getProjectLayoutState();
+      const widgetId = state.uiState.dashboardSettingsActiveWidget;
+      if (!isCommandWidgetId(widgetId)) return;
+      const fn = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
+      const current = normalizeCommandButtons(fn.buttons).filter((_, idx) => idx !== index);
+      fn.buttons = normalizeCommandButtons(current);
+      fn.title = String(document.getElementById("commandWidgetTitle")?.value || fn.title || "Command").trim() || "Command";
+      layout.widgetFunctions[widgetId] = fn;
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
@@ -936,6 +1057,26 @@ function normalizeNpmButtons(buttons) {
   return normalized.length ? normalized : defaultNpmButtons();
 }
 
+function normalizeCommandButtons(buttons) {
+  const source = Array.isArray(buttons) ? buttons : [];
+  return source
+    .map((item, index) => ({
+      id: String(item?.id || `cmd_${index}`),
+      label: String(item?.label || item?.command || `Command ${index + 1}`),
+      command: String(item?.command || "").trim(),
+      runInTerminal: item?.runInTerminal !== false,
+    }))
+    .filter((item) => item.command.length > 0);
+}
+
+function normalizeCommandWidgetSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    title: String(source.title || "Command").trim() || "Command",
+    buttons: normalizeCommandButtons(source.buttons),
+  };
+}
+
 function normalizeDdevButtons(config) {
   if (Array.isArray(config)) {
     const normalized = config
@@ -1001,6 +1142,7 @@ function toProjectRelativeDisplayPath(directoryPath, projectPath) {
 function getProjectLayoutState() {
   const key = currentProjectKey();
   if (!key) return null;
+  const staticWidgetIds = ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"];
 
   if (!state.uiState.dashboardLayouts) {
     state.uiState.dashboardLayouts = {};
@@ -1008,7 +1150,7 @@ function getProjectLayoutState() {
 
   if (!state.uiState.dashboardLayouts[key]) {
     state.uiState.dashboardLayouts[key] = {
-      order: ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"],
+      order: [...staticWidgetIds],
       grid: {
         columns: 6,
         gap: 12,
@@ -1035,7 +1177,14 @@ function getProjectLayoutState() {
   };
 
   layout.widgets = layout.widgets || {};
-  for (const id of ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"]) {
+  const dynamicWidgetIds = Array.from(
+    new Set([
+      ...Object.keys(layout.widgets || {}).filter((id) => isCommandWidgetId(id)),
+      ...Object.keys(layout.widgetFunctions || {}).filter((id) => isCommandWidgetId(id)),
+      ...(Array.isArray(layout.order) ? layout.order.filter((id) => isCommandWidgetId(id)) : []),
+    ]),
+  );
+  for (const id of [...staticWidgetIds, ...dynamicWidgetIds]) {
     const existing = layout.widgets[id] || {};
     layout.widgets[id] = {
       visible: typeof existing.visible === "boolean" ? existing.visible : true,
@@ -1049,7 +1198,18 @@ function getProjectLayoutState() {
   }
 
   if (!Array.isArray(layout.order)) {
-    layout.order = ["project", "ddev", "disk", "git", "npm", "filebrowser", "launcher", "ssh", "browser"];
+    layout.order = [...staticWidgetIds];
+  }
+  layout.order = layout.order.filter((id) => staticWidgetIds.includes(id) || isCommandWidgetId(id));
+  for (const id of staticWidgetIds) {
+    if (!layout.order.includes(id)) {
+      layout.order.push(id);
+    }
+  }
+  for (const id of dynamicWidgetIds) {
+    if (!layout.order.includes(id)) {
+      layout.order.push(id);
+    }
   }
 
   const functionDefaults = baseWidgetFunctionSettings();
@@ -1059,6 +1219,9 @@ function getProjectLayoutState() {
       ...functionDefaults[widgetId],
       ...(layout.widgetFunctions[widgetId] || {}),
     };
+  }
+  for (const widgetId of dynamicWidgetIds) {
+    layout.widgetFunctions[widgetId] = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
   }
   layout.widgetFunctions.ddev.buttons = normalizeDdevButtons(
     layout.widgetFunctions.ddev.buttons || layout.widgetFunctions.ddev,
@@ -1163,6 +1326,25 @@ function renderNpmBody(fn) {
   return `<div class="git-branch-list">${rows}</div>`;
 }
 
+function renderCommandBody(widgetId, fn) {
+  const buttons = normalizeCommandButtons(fn?.buttons);
+  if (!buttons.length) {
+    return `<p class="status-warn">Keine Befehle konfiguriert.</p>`;
+  }
+  const rows = buttons
+    .map((item) => {
+      const mode = item.runInTerminal ? "Terminal" : "Inline";
+      return `
+        <div class="actions npm-row">
+          <button data-command-widget="${escapeHtml(widgetId)}" data-command-btn="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
+          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
+        </div>
+      `;
+    })
+    .join("");
+  return `<div class="git-branch-list">${rows}</div>`;
+}
+
 function renderFilebrowserBody(fn) {
   const selectedProject = state.selectedProjectEntry.project;
   const directories = getFilebrowserDirectories(fn, selectedProject.path);
@@ -1242,7 +1424,7 @@ function getWidgetDefinitions() {
   const widgets = resolveWidgets(project);
   const layout = getProjectLayoutState();
   const fn = layout?.widgetFunctions || baseWidgetFunctionSettings();
-  return [
+  const staticDefs = [
     {
       id: "project",
       title: "Projekt",
@@ -1277,6 +1459,17 @@ function getWidgetDefinitions() {
     { id: "ssh", title: "SSH", available: Boolean(widgets.ssh), body: renderSshBody(fn.ssh || {}) },
     { id: "browser", title: "Browser", available: Boolean(widgets.browser), body: renderBrowserBody(fn.browser || {}) },
   ];
+  const commandIds = (layout?.order || []).filter((id) => isCommandWidgetId(id));
+  const commandDefs = commandIds.map((id) => {
+    const commandFn = normalizeCommandWidgetSettings(layout?.widgetFunctions?.[id]);
+    return {
+      id,
+      title: commandFn.title || "Command",
+      available: true,
+      body: renderCommandBody(id, commandFn),
+    };
+  });
+  return [...staticDefs, ...commandDefs];
 }
 
 function renderDashboard() {
@@ -1683,6 +1876,26 @@ function bindDashboardEvents() {
       if (!buttonId) return;
       const fn = getProjectLayoutState()?.widgetFunctions?.npm || {};
       const commandButton = normalizeNpmButtons(fn.buttons).find((item) => item.id === buttonId);
+      if (!commandButton) return;
+      const result = await window.dashboardApi.runProjectCommand({
+        projectPath,
+        command: commandButton.command,
+        runInTerminal: commandButton.runInTerminal !== false,
+        appDefaults,
+      });
+      if (!result.ok) {
+        alert(result.error || "Kommando konnte nicht gestartet werden.");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-command-widget][data-command-btn]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const widgetId = button.getAttribute("data-command-widget");
+      const buttonId = button.getAttribute("data-command-btn");
+      if (!widgetId || !buttonId || !isCommandWidgetId(widgetId)) return;
+      const fn = normalizeCommandWidgetSettings(getProjectLayoutState()?.widgetFunctions?.[widgetId]);
+      const commandButton = fn.buttons.find((item) => item.id === buttonId);
       if (!commandButton) return;
       const result = await window.dashboardApi.runProjectCommand({
         projectPath,
