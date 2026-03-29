@@ -52,6 +52,7 @@ function defaultWidgets() {
     ddev: true,
     diskUsage: true,
     git: true,
+    filebrowser: true,
     ssh: [],
     launcher: {
       cursor: true,
@@ -363,6 +364,32 @@ function renderWidgetSettingsModal() {
         <label><input id="gitShowCurrentBranch" type="checkbox" ${fn.showCurrentBranch ? "checked" : ""} /> Aktiven Branch markieren</label>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="git">Einstellungen speichern</button></div>
       `;
+    } else if (widgetId === "filebrowser") {
+      const selectedProject = state.selectedProjectEntry.project;
+      const directories = getFilebrowserDirectories(fn, selectedProject.path);
+      const rows = directories
+        .map((dir, index) => {
+          const isProjectDir = index === 0;
+          const label = toProjectRelativeDisplayPath(dir, selectedProject.path);
+          const removeButton = isProjectDir
+            ? ""
+            : `<button data-remove-filebrowser-dir="${escapeHtml(dir)}">Entfernen</button>`;
+          return `
+            <div class="actions filebrowser-row">
+              <span>${escapeHtml(label)}</span>
+              ${removeButton}
+            </div>
+          `;
+        })
+        .join("");
+      el.widgetSettingsContent.innerHTML = `
+        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
+        <p>Der Projektpfad steht immer als erstes in der Liste.</p>
+        <div class="actions">
+          <button id="addFilebrowserDirectoryBtn">Verzeichnis hinzufuegen</button>
+        </div>
+        <div class="filebrowser-list">${rows}</div>
+      `;
     } else if (widgetId === "launcher") {
       el.widgetSettingsContent.innerHTML = `
         <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
@@ -452,6 +479,47 @@ function bindWidgetSettingsEvents() {
       renderDashboard();
     });
   }
+
+  const addFilebrowserDirectoryBtn = document.getElementById("addFilebrowserDirectoryBtn");
+  if (addFilebrowserDirectoryBtn) {
+    addFilebrowserDirectoryBtn.addEventListener("click", async () => {
+      const selectedProject = state.selectedProjectEntry.project;
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.filebrowser || { directories: [] };
+      const startPath = selectedProject.path;
+      const result = await window.dashboardApi.pickDirectory({ startPath });
+      if (!result?.ok || !result.path) {
+        return;
+      }
+      const picked = String(result.path).trim();
+      if (!picked || picked === selectedProject.path) {
+        return;
+      }
+      const merged = getFilebrowserDirectories({ directories: fn.directories || [] }, selectedProject.path);
+      if (merged.includes(picked)) {
+        return;
+      }
+      fn.directories = [...(Array.isArray(fn.directories) ? fn.directories : []), picked];
+      layout.widgetFunctions.filebrowser = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-filebrowser-dir]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = button.getAttribute("data-remove-filebrowser-dir");
+      if (!target) return;
+      const layout = getProjectLayoutState();
+      const fn = layout.widgetFunctions.filebrowser || { directories: [] };
+      fn.directories = (Array.isArray(fn.directories) ? fn.directories : []).filter((dir) => dir !== target);
+      layout.widgetFunctions.filebrowser = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  });
 }
 
 function renderProjectList() {
@@ -618,6 +686,9 @@ function baseWidgetFunctionSettings() {
       allowCheckout: true,
       showCurrentBranch: true,
     },
+    filebrowser: {
+      directories: [],
+    },
     launcher: {
       allowCursor: true,
       allowVscode: true,
@@ -633,6 +704,42 @@ function baseWidgetFunctionSettings() {
   };
 }
 
+function getFilebrowserDirectories(fn, projectPath) {
+  const normalized = [];
+  const seen = new Set();
+  const addUnique = (dir) => {
+    const value = String(dir || "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    normalized.push(value);
+  };
+  addUnique(projectPath);
+  if (Array.isArray(fn?.directories)) {
+    fn.directories.forEach((dir) => addUnique(dir));
+  }
+  return normalized;
+}
+
+function toProjectRelativeDisplayPath(directoryPath, projectPath) {
+  const dir = String(directoryPath || "").trim();
+  const project = String(projectPath || "").trim();
+  if (!dir || !project) return dir;
+
+  const normalize = (value) => value.replaceAll("\\", "/").replace(/\/+$/, "");
+  const dirNorm = normalize(dir);
+  const projectNorm = normalize(project);
+  const projectBase = projectNorm.split("/").filter(Boolean).pop() || projectNorm;
+
+  if (dirNorm === projectNorm) {
+    return projectBase;
+  }
+  if (dirNorm.startsWith(`${projectNorm}/`)) {
+    const suffix = dirNorm.slice(projectNorm.length + 1);
+    return `${projectBase}/${suffix}`;
+  }
+  return dir;
+}
+
 function getProjectLayoutState() {
   const key = currentProjectKey();
   if (!key) return null;
@@ -643,7 +750,7 @@ function getProjectLayoutState() {
 
   if (!state.uiState.dashboardLayouts[key]) {
     state.uiState.dashboardLayouts[key] = {
-      order: ["project", "ddev", "disk", "git", "launcher", "ssh", "browser"],
+      order: ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"],
       grid: {
         columns: 6,
         gap: 12,
@@ -653,6 +760,7 @@ function getProjectLayoutState() {
         ddev: baseWidgetState(),
         disk: baseWidgetState(),
         git: baseWidgetState(),
+        filebrowser: baseWidgetState(),
         launcher: baseWidgetState(),
         ssh: baseWidgetState(),
         browser: baseWidgetState(),
@@ -668,7 +776,7 @@ function getProjectLayoutState() {
   };
 
   layout.widgets = layout.widgets || {};
-  for (const id of ["project", "ddev", "disk", "git", "launcher", "ssh", "browser"]) {
+  for (const id of ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"]) {
     const existing = layout.widgets[id] || {};
     layout.widgets[id] = {
       visible: typeof existing.visible === "boolean" ? existing.visible : true,
@@ -679,7 +787,7 @@ function getProjectLayoutState() {
   }
 
   if (!Array.isArray(layout.order)) {
-    layout.order = ["project", "ddev", "disk", "git", "launcher", "ssh", "browser"];
+    layout.order = ["project", "ddev", "disk", "git", "filebrowser", "launcher", "ssh", "browser"];
   }
 
   const functionDefaults = baseWidgetFunctionSettings();
@@ -775,6 +883,32 @@ function renderGitBody(fn) {
   `;
 }
 
+function renderFilebrowserBody(fn) {
+  const selectedProject = state.selectedProjectEntry.project;
+  const directories = getFilebrowserDirectories(fn, selectedProject.path);
+  if (!directories.length) {
+    return `<p class="status-warn">Keine Verzeichnisse konfiguriert.</p>`;
+  }
+
+  const rows = directories
+    .map((dir, index) => {
+      const label = toProjectRelativeDisplayPath(dir, selectedProject.path);
+      return `
+        <div class="filebrowser-row">
+          <button class="filebrowser-open-icon-btn" data-open-path="${escapeHtml(dir)}" aria-label="Verzeichnis oeffnen" title="Verzeichnis oeffnen">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M10 4a2 2 0 0 1 1.4.6l1.2 1.2c.2.2.5.2.7.2H18a2 2 0 0 1 2 2v1h-2V8h-4.7a3 3 0 0 1-2.1-.9L10 5.9V6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h5v2H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4h4Zm8.7 8.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-2.6 2.6a1 1 0 1 1-1.4-1.4l.9-.9H14a1 1 0 1 1 0-2h5.6l-.9-.9a1 1 0 0 1 0-1.4Z"/>
+            </svg>
+          </button>
+          <span class="filebrowser-path" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="filebrowser-list">${rows}</div>`;
+}
+
 function renderLauncherBody(fn) {
   const buttons = [];
   if (fn.allowCursor) buttons.push(`<button data-launcher="cursor">Cursor</button>`);
@@ -847,6 +981,12 @@ function getWidgetDefinitions() {
     { id: "ddev", title: "DDEV", available: Boolean(widgets.ddev), body: renderDdevBody(fn.ddev || {}) },
     { id: "disk", title: "Disk Usage", available: Boolean(widgets.diskUsage), body: renderDiskBody() },
     { id: "git", title: "Git", available: Boolean(widgets.git), body: renderGitBody(fn.git || {}) },
+    {
+      id: "filebrowser",
+      title: "Filebrowser",
+      available: Boolean(widgets.filebrowser),
+      body: renderFilebrowserBody(fn.filebrowser || {}),
+    },
     {
       id: "launcher",
       title: "Programmstarter",
@@ -1219,6 +1359,15 @@ function bindDashboardEvents() {
       const program = button.getAttribute("data-launcher");
       const result = await window.dashboardApi.openLauncher({ projectPath, program });
       if (!result.ok) alert(result.error || "Programm konnte nicht geoeffnet werden.");
+    });
+  });
+
+  document.querySelectorAll("[data-open-path]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const targetPath = button.getAttribute("data-open-path");
+      if (!targetPath) return;
+      const result = await window.dashboardApi.openPath({ targetPath });
+      if (!result.ok) alert(result.error || "Verzeichnis konnte nicht geoeffnet werden.");
     });
   });
 

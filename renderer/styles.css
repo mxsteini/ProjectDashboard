@@ -293,6 +293,60 @@ select {
   align-items: center;
 }
 
+.filebrowser-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.filebrowser-row {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.filebrowser-path {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+
+.filebrowser-badge {
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.filebrowser-open-icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.filebrowser-open-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
 button {
   border: 1px solid #334155;
   background: var(--panel-2);

@@ -514,6 +514,18 @@ ipcMain.handle("launcher:open", async (_event, { projectPath, program }) => {
   }
 });
 
+ipcMain.handle("path:open", async (_event, { targetPath }) => {
+  try {
+    if (!targetPath || typeof targetPath !== "string") {
+      return { ok: false, error: "Ungueltiger Pfad." };
+    }
+    await shell.openPath(targetPath);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+});
+
 ipcMain.handle("browser:open", async (_event, { url }) => {
   try {
     await shell.openExternal(url);

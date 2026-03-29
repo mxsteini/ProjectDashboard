@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("dashboardApi", {
   runDdev: (payload) => ipcRenderer.invoke("ddev:run", payload),
   runGit: (payload) => ipcRenderer.invoke("git:run", payload),
   openLauncher: (payload) => ipcRenderer.invoke("launcher:open", payload),
+  openPath: (payload) => ipcRenderer.invoke("path:open", payload),
   openBrowserUrl: (payload) => ipcRenderer.invoke("browser:open", payload),
   openSsh: (payload) => ipcRenderer.invoke("ssh:open", payload),
 });
