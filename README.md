@@ -1,5 +1,9 @@
 # ProjectDashboard
 
+## Disclaimer
+
+This project is completely written by AI! I am not responsible for any damage caused by this project.
+
 Electron-basierter Projekt-Dashboard-Launcher mit Widgets fuer:
 
 - DDEV Status + Start/Stop/Restart
