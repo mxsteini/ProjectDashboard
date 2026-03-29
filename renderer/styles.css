@@ -193,7 +193,7 @@ select {
 .dashboard {
   padding: 16px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   align-content: start;
 }
@@ -205,8 +205,24 @@ select {
   padding: 12px;
 }
 
+.dashboard-item {
+  min-width: 0;
+}
+
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  cursor: grab;
+}
+
+.widget-header:active {
+  cursor: grabbing;
+}
+
 .widget h3 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 1rem;
 }
 
@@ -270,4 +286,45 @@ pre {
   border: 1px dashed #334155;
   border-radius: 10px;
   padding: 20px;
+}
+
+.dragging {
+  opacity: 0.55;
+}
+
+.drop-target {
+  outline: 1px dashed var(--primary);
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 10px;
+}
+
+.settings-tabs {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.settings-tab {
+  text-align: left;
+}
+
+.settings-tab.active {
+  border-color: var(--primary);
+}
+
+.settings-content {
+  border: 1px solid #243244;
+  border-radius: 10px;
+  padding: 10px;
+  background: #111827;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-content h3 {
+  margin: 0;
 }

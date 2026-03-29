@@ -26,6 +26,9 @@ function getUiStatePath() {
 function defaultUiState() {
   return {
     configEditorOpen: false,
+    dashboardSettingsOpen: false,
+    dashboardSettingsActiveTab: "grid",
+    dashboardLayouts: {},
     collapsedCustomers: [],
     collapsedManagers: [],
     windowBounds: {
@@ -88,6 +91,18 @@ function normalizeUiState(input) {
   return {
     configEditorOpen:
       typeof source.configEditorOpen === "boolean" ? source.configEditorOpen : defaults.configEditorOpen,
+    dashboardSettingsOpen:
+      typeof source.dashboardSettingsOpen === "boolean"
+        ? source.dashboardSettingsOpen
+        : defaults.dashboardSettingsOpen,
+    dashboardSettingsActiveTab:
+      typeof source.dashboardSettingsActiveTab === "string" && source.dashboardSettingsActiveTab
+        ? source.dashboardSettingsActiveTab
+        : defaults.dashboardSettingsActiveTab,
+    dashboardLayouts:
+      source.dashboardLayouts && typeof source.dashboardLayouts === "object" && !Array.isArray(source.dashboardLayouts)
+        ? source.dashboardLayouts
+        : defaults.dashboardLayouts,
     collapsedCustomers: Array.isArray(source.collapsedCustomers)
       ? source.collapsedCustomers.map(String)
       : defaults.collapsedCustomers,
