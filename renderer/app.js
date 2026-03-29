@@ -402,13 +402,16 @@ function renderWidgetSettingsModal() {
 
   const activeSubtab = state.uiState.dashboardSettingsActiveSubtab;
   if (activeSubtab === "gridsetup") {
-    const current = layout.widgets[activeWidgetId]?.colSpan || 2;
+    const currentWidth = layout.widgets[activeWidgetId]?.colSpan || 2;
+    const currentHeight = layout.widgets[activeWidgetId]?.rowSpan || 1;
 
     el.widgetSettingsContent.innerHTML = `
       <h3>Grid Einstellungen</h3>
       <p>Raster: <strong>6 Spalten</strong> (fix)</p>
       <label>Breite des Widgets (Spalten)</label>
-      <input type="number" min="1" max="6" id="gridWidthInput" value="${current}" />
+      <input type="number" min="1" max="6" id="gridWidthInput" value="${currentWidth}" />
+      <label>Hoehe des Widgets (Zeilen)</label>
+      <input type="number" min="1" max="12" id="gridHeightInput" value="${currentHeight}" />
       <div class="actions">
         <button id="saveGridSettingsBtn" data-widget-id="${escapeHtml(activeWidgetId)}">Gridsetup speichern</button>
       </div>
@@ -556,9 +559,11 @@ function bindWidgetSettingsEvents() {
       const widgetId = saveGridButton.getAttribute("data-widget-id");
       if (!widgetId) return;
       const width = Number(document.getElementById("gridWidthInput")?.value);
+      const height = Number(document.getElementById("gridHeightInput")?.value);
       layout.widgets[widgetId] = {
         ...(layout.widgets[widgetId] || baseWidgetState()),
         colSpan: Number.isFinite(width) ? Math.max(1, Math.min(6, width)) : 2,
+        rowSpan: Number.isFinite(height) ? Math.max(1, Math.min(12, height)) : 1,
       };
       await persistUiState();
       renderWidgetSettingsModal();
@@ -880,6 +885,7 @@ function baseWidgetState() {
   return {
     visible: true,
     colSpan: 2,
+    rowSpan: 1,
   };
 }
 
@@ -1008,7 +1014,7 @@ function getProjectLayoutState() {
         gap: 12,
       },
       widgets: {
-        project: { visible: true, colSpan: 3 },
+        project: { visible: true, colSpan: 3, rowSpan: 1 },
         ddev: baseWidgetState(),
         disk: baseWidgetState(),
         git: baseWidgetState(),
@@ -1036,6 +1042,9 @@ function getProjectLayoutState() {
       colSpan: Number.isFinite(Number(existing.colSpan))
         ? Math.max(1, Math.min(6, Number(existing.colSpan)))
         : (id === "project" ? 3 : 2),
+      rowSpan: Number.isFinite(Number(existing.rowSpan))
+        ? Math.max(1, Math.min(12, Number(existing.rowSpan)))
+        : 1,
     };
   }
 
@@ -1059,12 +1068,12 @@ function getProjectLayoutState() {
   return layout;
 }
 
-function renderWidgetShell(widgetId, title, body, colSpan) {
+function renderWidgetShell(widgetId, title, body, colSpan, rowSpan) {
   const closeButton = widgetId === "project"
     ? ""
     : `<button class="widget-close-btn" data-close-widget="${escapeHtml(widgetId)}" aria-label="Widget schliessen" title="Widget schliessen">✕</button>`;
   return `
-    <article class="widget dashboard-item" draggable="true" data-widget-id="${escapeHtml(widgetId)}" style="grid-column: span ${colSpan};">
+    <article class="widget dashboard-item" draggable="true" data-widget-id="${escapeHtml(widgetId)}" style="grid-column: span ${colSpan}; grid-row: span ${rowSpan};">
       <div class="widget-header">
         <h3>${escapeHtml(title)}</h3>
         <div class="widget-header-actions">
@@ -1293,7 +1302,8 @@ function renderDashboard() {
     .map((id) => {
       const widget = byId[id];
       const colSpan = layout.widgets[id]?.colSpan || 2;
-      return renderWidgetShell(id, widget.title, widget.body, colSpan);
+      const rowSpan = layout.widgets[id]?.rowSpan || 1;
+      return renderWidgetShell(id, widget.title, widget.body, colSpan, rowSpan);
     });
 
   setDashboard(parts.length ? parts.join("") : `<div class="empty-state"><h2>Keine Widgets sichtbar</h2></div>`);
