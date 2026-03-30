@@ -521,7 +521,8 @@ function renderWidgetSettingsModal() {
     } else if (widgetId === "git") {
       el.widgetSettingsContent.innerHTML = `
         <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="gitAllowCheckout" type="checkbox" ${fn.allowCheckout ? "checked" : ""} /> Checkout Button anzeigen</label>
+        <label><input id="gitAllowCheckout" type="checkbox" ${fn.allowCheckout ? "checked" : ""} /> Checkout Icon anzeigen</label>
+        <label><input id="gitAllowDelete" type="checkbox" ${fn.allowDelete !== false ? "checked" : ""} /> Delete Icon anzeigen</label>
         <label><input id="gitShowCurrentBranch" type="checkbox" ${fn.showCurrentBranch ? "checked" : ""} /> Aktiven Branch markieren</label>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="git">Einstellungen speichern</button></div>
       `;
@@ -723,6 +724,7 @@ function bindWidgetSettingsEvents() {
         fn.buttons = normalizeDdevButtons(merged);
       } else if (widgetId === "git") {
         fn.allowCheckout = Boolean(document.getElementById("gitAllowCheckout")?.checked);
+        fn.allowDelete = Boolean(document.getElementById("gitAllowDelete")?.checked);
         fn.showCurrentBranch = Boolean(document.getElementById("gitShowCurrentBranch")?.checked);
       } else if (widgetId === "npm") {
         const labels = Array.from(document.querySelectorAll("[data-npm-label]"));
@@ -1112,6 +1114,7 @@ function baseWidgetFunctionSettings() {
     disk: {},
     git: {
       allowCheckout: true,
+      allowDelete: true,
       showCurrentBranch: true,
     },
     npm: {
@@ -1424,11 +1427,26 @@ function renderGitBody(fn) {
       const isCurrent = branch === git.currentBranch;
       const label = fn.showCurrentBranch && isCurrent ? `${branch} (aktiv)` : branch;
       const checkout = fn.allowCheckout
-        ? `<button data-git-checkout="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""}>Checkout</button>`
+        ? `
+          <button class="git-icon-btn" data-git-checkout="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""} aria-label="Branch auschecken" title="Checkout">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M10 4a1 1 0 0 1 1 1v5h7a1 1 0 1 1 0 2h-7v5a1 1 0 0 1-1.7.7l-6-6a1 1 0 0 1 0-1.4l6-6A1 1 0 0 1 10 4Z"/>
+            </svg>
+          </button>
+        `
+        : "";
+      const remove = fn.allowDelete !== false
+        ? `
+          <button class="git-icon-btn danger" data-git-delete="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""} aria-label="Branch loeschen" title="Delete">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M9 3a2 2 0 0 0-2 2v1H4a1 1 0 1 0 0 2h1l1 11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-11h1a1 1 0 1 0 0-2h-3V5a2 2 0 0 0-2-2H9Zm0 3V5h6v1H9Zm1 4a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Z"/>
+            </svg>
+          </button>
+        `
         : "";
       return `
         <div class="actions git-branch-row">
-          ${checkout}
+          ${checkout}${remove}
           <span class="${isCurrent ? "status-ok" : ""}">${escapeHtml(label)}</span>
         </div>
       `;
@@ -2021,6 +2039,17 @@ function bindDashboardEvents() {
       const branch = button.getAttribute("data-git-checkout");
       const result = await window.dashboardApi.runGit({ projectPath, action: "checkout", branch });
       alert(result.ok ? result.stdout || "OK" : result.stderr || "Fehler");
+      await refreshProject();
+    });
+  });
+
+  document.querySelectorAll("[data-git-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const branch = button.getAttribute("data-git-delete");
+      if (!branch) return;
+      if (!confirm(`Branch '${branch}' wirklich loeschen?`)) return;
+      const result = await window.dashboardApi.runGit({ projectPath, action: "delete", branch });
+      alert(result.ok ? result.stdout || "Branch geloescht." : result.stderr || "Fehler");
       await refreshProject();
     });
   });

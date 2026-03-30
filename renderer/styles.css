@@ -295,6 +295,21 @@ select {
   align-items: center;
 }
 
+.git-icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.git-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
 .filebrowser-list {
   display: grid;
   gap: 8px;

@@ -348,11 +348,14 @@ function isSafeBranchName(value) {
 }
 
 async function runGitAction(projectPath, action, branch) {
+  if (!isSafeBranchName(branch)) {
+    return { ok: false, code: 1, stdout: "", stderr: "Ungueltiger Branchname." };
+  }
   if (action === "checkout") {
-    if (!isSafeBranchName(branch)) {
-      return { ok: false, code: 1, stdout: "", stderr: "Ungueltiger Branchname." };
-    }
     return runCommand("git", ["-C", projectPath, "checkout", branch]);
+  }
+  if (action === "delete") {
+    return runCommand("git", ["-C", projectPath, "branch", "-d", branch]);
   }
   return { ok: false, code: 1, stdout: "", stderr: `Unbekannte Git-Aktion: ${action}` };
 }
