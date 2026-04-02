@@ -101,6 +101,7 @@ function defaultNpmButtons() {
 
 const COMMAND_WIDGET_PREFIX = "command::";
 const SSH_WIDGET_PREFIX = "ssh::";
+const LAUNCHER_WIDGET_PREFIX = "launcher::";
 
 function isCommandWidgetId(widgetId) {
   return typeof widgetId === "string" && widgetId.startsWith(COMMAND_WIDGET_PREFIX);
@@ -113,6 +114,21 @@ function createCommandWidgetId() {
 function defaultCommandWidgetSettings() {
   return {
     title: "Command",
+    buttons: [],
+  };
+}
+
+function isLauncherWidgetId(widgetId) {
+  return typeof widgetId === "string" && widgetId.startsWith(LAUNCHER_WIDGET_PREFIX);
+}
+
+function createLauncherWidgetId() {
+  return `${LAUNCHER_WIDGET_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function defaultLauncherWidgetSettings() {
+  return {
+    title: "Launcher",
     buttons: [],
   };
 }
@@ -280,7 +296,7 @@ function renderConfigEditor() {
         <input id="defaultBrowserCommandInput" placeholder='z. B. firefox {url}' value="${escapeHtml(defaults.browserCommand)}" />
 
         <button id="saveAppDefaultsBtn">Defaults speichern</button>
-        <p id="configMessage" class="meta">Platzhalter: {path}, {command}, {url}</p>
+        <p id="configMessage" class="meta">Platzhalter: {path}, {projectFolder}, {command}, {url}</p>
         `
         }
       </div>
@@ -354,6 +370,7 @@ function renderAddWidgetModal() {
     .join("");
   el.addWidgetList.innerHTML = `
     <button data-add-command-widget="true">Command Widget hinzufuegen</button>
+    <button data-add-launcher-widget="true">Launcher Widget hinzufuegen</button>
     <button data-add-ssh-widget="true">Remote-Widget hinzufuegen</button>
     ${hiddenButtons || `<p class="status-warn">Keine weiteren ausgeblendeten Widgets verfuegbar.</p>`}
   `;
@@ -368,6 +385,23 @@ function renderAddWidgetModal() {
         visible: true,
       };
       layout.widgetFunctions[widgetId] = defaultCommandWidgetSettings();
+      await persistUiState();
+      closeAddWidgetModal();
+      renderDashboard();
+      openWidgetSettingsModal(widgetId, "widget");
+    });
+  }
+  const addLauncherWidgetButton = el.addWidgetList.querySelector("[data-add-launcher-widget]");
+  if (addLauncherWidgetButton) {
+    addLauncherWidgetButton.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const widgetId = createLauncherWidgetId();
+      layout.order.push(widgetId);
+      layout.widgets[widgetId] = {
+        ...baseWidgetState(),
+        visible: true,
+      };
+      layout.widgetFunctions[widgetId] = defaultLauncherWidgetSettings();
       await persistUiState();
       closeAddWidgetModal();
       renderDashboard();
@@ -587,6 +621,37 @@ function renderWidgetSettingsModal() {
         </div>
         <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
       `;
+    } else if (isLauncherWidgetId(widgetId)) {
+      const launcherFn = normalizeLauncherWidgetSettings(fn);
+      const rows = launcherFn.buttons
+        .map((item, index) => {
+          return `
+            <div class="config-block">
+              <label>Label</label>
+              <input data-launcher-cmd-label="${index}" value="${escapeHtml(item.label)}" />
+              <label>Befehl</label>
+              <input data-launcher-cmd-command="${index}" value="${escapeHtml(item.command)}" />
+              <label><input type="checkbox" data-launcher-cmd-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
+              <button data-remove-launcher-cmd="${index}" class="danger">Button entfernen</button>
+            </div>
+          `;
+        })
+        .join("");
+      el.widgetSettingsContent.innerHTML = `
+        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
+        <label>Widget Titel</label>
+        <input id="launcherWidgetTitle" value="${escapeHtml(launcherFn.title)}" placeholder="Launcher" />
+        ${rows}
+        <div class="config-block">
+          <label>Neuer Button Label</label>
+          <input id="newLauncherCmdLabel" placeholder="z. B. Build" />
+          <label>Neuer Befehl</label>
+          <input id="newLauncherCmdCommand" placeholder="npm run build" />
+          <label><input type="checkbox" id="newLauncherCmdRunInTerminal" checked /> Im Terminal ausfuehren</label>
+          <button id="addLauncherCmdButtonBtn">Button hinzufuegen</button>
+        </div>
+        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
+      `;
     } else if (widgetId === "filebrowser") {
       const selectedProject = state.selectedProjectEntry.project;
       const directories = getFilebrowserDirectories(fn, selectedProject.path);
@@ -653,7 +718,7 @@ function renderWidgetSettingsModal() {
         <label>Remote Kommando</label>
         <input id="sshCommandTemplate" value="${escapeHtml(sshFn.commandTemplate)}" placeholder="ssh {host}" />
         <label><input id="sshRunInTerminal" type="checkbox" ${sshFn.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-        <p class="meta">Platzhalter: {host}, {user}, {hostname}, {port}</p>
+        <p class="meta">Platzhalter: {host}, {user}, {hostname}, {port}, {projectFolder}</p>
         <label>Hosts durchsuchen</label>
         <input id="sshHostSearchInput" placeholder="Alias, User, Hostname..." />
         <div class="filebrowser-list">${rows}</div>
@@ -748,6 +813,18 @@ function bindWidgetSettingsEvents() {
           runInTerminal: Boolean(terminals[index]?.checked),
         }));
         fn.title = String(document.getElementById("commandWidgetTitle")?.value || "").trim() || "Command";
+        fn.buttons = normalizeCommandButtons(merged);
+      } else if (isLauncherWidgetId(widgetId)) {
+        const labels = Array.from(document.querySelectorAll("[data-launcher-cmd-label]"));
+        const commands = Array.from(document.querySelectorAll("[data-launcher-cmd-command]"));
+        const terminals = Array.from(document.querySelectorAll("[data-launcher-cmd-terminal]"));
+        const merged = labels.map((labelNode, index) => ({
+          id: `launcher_custom_${index}`,
+          label: String(labelNode.value || "").trim() || `Launcher command ${index + 1}`,
+          command: String(commands[index]?.value || "").trim(),
+          runInTerminal: Boolean(terminals[index]?.checked),
+        }));
+        fn.title = String(document.getElementById("launcherWidgetTitle")?.value || "").trim() || "Launcher";
         fn.buttons = normalizeCommandButtons(merged);
       } else if (widgetId === "launcher") {
         fn.allowCursor = Boolean(document.getElementById("launcherAllowCursor")?.checked);
@@ -857,6 +934,51 @@ function bindWidgetSettingsEvents() {
       const current = normalizeCommandButtons(fn.buttons).filter((_, idx) => idx !== index);
       fn.buttons = normalizeCommandButtons(current);
       fn.title = String(document.getElementById("commandWidgetTitle")?.value || fn.title || "Command").trim() || "Command";
+      layout.widgetFunctions[widgetId] = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  });
+
+  const addLauncherCmdButtonBtn = document.getElementById("addLauncherCmdButtonBtn");
+  if (addLauncherCmdButtonBtn) {
+    addLauncherCmdButtonBtn.addEventListener("click", async () => {
+      const layout = getProjectLayoutState();
+      const widgetId = state.uiState.dashboardSettingsActiveWidget;
+      if (!isLauncherWidgetId(widgetId)) return;
+      const fn = normalizeLauncherWidgetSettings(layout.widgetFunctions[widgetId]);
+      const label = String(document.getElementById("newLauncherCmdLabel")?.value || "").trim();
+      const command = String(document.getElementById("newLauncherCmdCommand")?.value || "").trim();
+      const runInTerminal = Boolean(document.getElementById("newLauncherCmdRunInTerminal")?.checked);
+      if (!command) return;
+      const current = normalizeCommandButtons(fn.buttons);
+      current.push({
+        id: `launcher_custom_${Date.now()}`,
+        label: label || command,
+        command,
+        runInTerminal,
+      });
+      fn.buttons = normalizeCommandButtons(current);
+      fn.title = String(document.getElementById("launcherWidgetTitle")?.value || fn.title || "Launcher").trim() || "Launcher";
+      layout.widgetFunctions[widgetId] = fn;
+      await persistUiState();
+      renderWidgetSettingsModal();
+      renderDashboard();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-launcher-cmd]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const index = Number(button.getAttribute("data-remove-launcher-cmd"));
+      if (!Number.isFinite(index)) return;
+      const layout = getProjectLayoutState();
+      const widgetId = state.uiState.dashboardSettingsActiveWidget;
+      if (!isLauncherWidgetId(widgetId)) return;
+      const fn = normalizeLauncherWidgetSettings(layout.widgetFunctions[widgetId]);
+      const current = normalizeCommandButtons(fn.buttons).filter((_, idx) => idx !== index);
+      fn.buttons = normalizeCommandButtons(current);
+      fn.title = String(document.getElementById("launcherWidgetTitle")?.value || fn.title || "Launcher").trim() || "Launcher";
       layout.widgetFunctions[widgetId] = fn;
       await persistUiState();
       renderWidgetSettingsModal();
@@ -1169,6 +1291,14 @@ function normalizeCommandWidgetSettings(value) {
   };
 }
 
+function normalizeLauncherWidgetSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    title: String(source.title || "Launcher").trim() || "Launcher",
+    buttons: normalizeCommandButtons(source.buttons),
+  };
+}
+
 function normalizeSshWidgetSettings(value) {
   const source = value && typeof value === "object" ? value : {};
   const defaults = defaultSshWidgetSettings();
@@ -1308,6 +1438,9 @@ function getProjectLayoutState() {
       ...Object.keys(layout.widgets || {}).filter((id) => isCommandWidgetId(id)),
       ...Object.keys(layout.widgetFunctions || {}).filter((id) => isCommandWidgetId(id)),
       ...(Array.isArray(layout.order) ? layout.order.filter((id) => isCommandWidgetId(id)) : []),
+      ...Object.keys(layout.widgets || {}).filter((id) => isLauncherWidgetId(id)),
+      ...Object.keys(layout.widgetFunctions || {}).filter((id) => isLauncherWidgetId(id)),
+      ...(Array.isArray(layout.order) ? layout.order.filter((id) => isLauncherWidgetId(id)) : []),
       ...Object.keys(layout.widgets || {}).filter((id) => isSshWidgetId(id)),
       ...Object.keys(layout.widgetFunctions || {}).filter((id) => isSshWidgetId(id)),
       ...(Array.isArray(layout.order) ? layout.order.filter((id) => isSshWidgetId(id)) : []),
@@ -1329,7 +1462,7 @@ function getProjectLayoutState() {
   if (!Array.isArray(layout.order)) {
     layout.order = [...staticWidgetIds];
   }
-  layout.order = layout.order.filter((id) => staticWidgetIds.includes(id) || isCommandWidgetId(id));
+  layout.order = layout.order.filter((id) => staticWidgetIds.includes(id) || isCommandWidgetId(id) || isLauncherWidgetId(id) || isSshWidgetId(id));
   for (const id of staticWidgetIds) {
     if (!layout.order.includes(id)) {
       layout.order.push(id);
@@ -1352,6 +1485,8 @@ function getProjectLayoutState() {
   for (const widgetId of dynamicWidgetIds) {
     if (isCommandWidgetId(widgetId)) {
       layout.widgetFunctions[widgetId] = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
+    } else if (isLauncherWidgetId(widgetId)) {
+      layout.widgetFunctions[widgetId] = normalizeLauncherWidgetSettings(layout.widgetFunctions[widgetId]);
     } else if (isSshWidgetId(widgetId)) {
       layout.widgetFunctions[widgetId] = normalizeSshWidgetSettings(layout.widgetFunctions[widgetId]);
     }
@@ -1494,6 +1629,25 @@ function renderCommandBody(widgetId, fn) {
   return `<div class="git-branch-list">${rows}</div>`;
 }
 
+function renderLauncherCommandBody(widgetId, fn) {
+  const buttons = normalizeCommandButtons(fn?.buttons);
+  if (!buttons.length) {
+    return `<p class="status-warn">Keine Befehle konfiguriert.</p>`;
+  }
+  const rows = buttons
+    .map((item) => {
+      const mode = item.runInTerminal ? "Terminal" : "Inline";
+      return `
+        <div class="actions npm-row">
+          <button data-launcher-widget="${escapeHtml(widgetId)}" data-launcher-btn="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
+          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
+        </div>
+      `;
+    })
+    .join("");
+  return `<div class="git-branch-list">${rows}</div>`;
+}
+
 function renderFilebrowserBody(fn) {
   const selectedProject = state.selectedProjectEntry.project;
   const directories = getFilebrowserDirectories(fn, selectedProject.path);
@@ -1627,6 +1781,7 @@ function getWidgetDefinitions() {
     { id: "browser", title: "Browser", available: Boolean(widgets.browser), body: renderBrowserBody(fn.browser || {}) },
   ];
   const commandIds = (layout?.order || []).filter((id) => isCommandWidgetId(id));
+  const launcherIds = (layout?.order || []).filter((id) => isLauncherWidgetId(id));
   const sshIds = (layout?.order || []).filter((id) => isSshWidgetId(id));
   const commandDefs = commandIds.map((id) => {
     const commandFn = normalizeCommandWidgetSettings(layout?.widgetFunctions?.[id]);
@@ -1643,7 +1798,16 @@ function getWidgetDefinitions() {
     available: true,
     body: renderSshBody(id, layout?.widgetFunctions?.[id]),
   }));
-  return [...staticDefs, ...commandDefs, ...sshDefs];
+  const launcherDefs = launcherIds.map((id) => {
+    const launcherFn = normalizeLauncherWidgetSettings(layout?.widgetFunctions?.[id]);
+    return {
+      id,
+      title: launcherFn.title || "Launcher",
+      available: true,
+      body: renderLauncherCommandBody(id, launcherFn),
+    };
+  });
+  return [...staticDefs, ...commandDefs, ...launcherDefs, ...sshDefs];
 }
 
 function renderDashboard() {
@@ -2079,6 +2243,26 @@ function bindDashboardEvents() {
       const buttonId = button.getAttribute("data-command-btn");
       if (!widgetId || !buttonId || !isCommandWidgetId(widgetId)) return;
       const fn = normalizeCommandWidgetSettings(getProjectLayoutState()?.widgetFunctions?.[widgetId]);
+      const commandButton = fn.buttons.find((item) => item.id === buttonId);
+      if (!commandButton) return;
+      const result = await window.dashboardApi.runProjectCommand({
+        projectPath,
+        command: commandButton.command,
+        runInTerminal: commandButton.runInTerminal !== false,
+        appDefaults,
+      });
+      if (!result.ok) {
+        alert(result.error || "Kommando konnte nicht gestartet werden.");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-launcher-widget][data-launcher-btn]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const widgetId = button.getAttribute("data-launcher-widget");
+      const buttonId = button.getAttribute("data-launcher-btn");
+      if (!widgetId || !buttonId || !isLauncherWidgetId(widgetId)) return;
+      const fn = normalizeLauncherWidgetSettings(getProjectLayoutState()?.widgetFunctions?.[widgetId]);
       const commandButton = fn.buttons.find((item) => item.id === buttonId);
       if (!commandButton) return;
       const result = await window.dashboardApi.runProjectCommand({

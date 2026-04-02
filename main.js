@@ -469,6 +469,12 @@ function applyTemplate(template, values, fallbackAppendValue) {
   return resolved.trim();
 }
 
+function resolveProjectCommand(projectPath, commandText) {
+  const raw = String(commandText || "").trim();
+  if (!raw) return "";
+  return applyTemplate(raw, { projectFolder: bashQuote(projectPath) });
+}
+
 async function openTerminalAt(projectPath, commandText, appDefaults = {}) {
   const terminalTemplate = String(appDefaults.terminalCommand || "").trim();
   if (terminalTemplate) {
@@ -477,6 +483,7 @@ async function openTerminalAt(projectPath, commandText, appDefaults = {}) {
         terminalTemplate,
         {
           path: bashQuote(projectPath),
+          projectFolder: bashQuote(projectPath),
           command: commandText ? commandText : "",
         },
         bashQuote(projectPath),
@@ -559,7 +566,11 @@ async function openProgram(projectPath, program, appDefaults = {}) {
   if (program === "explorer") {
     const explorerTemplate = String(appDefaults.fileExplorerCommand || "").trim();
     if (explorerTemplate) {
-      const resolved = applyTemplate(explorerTemplate, { path: bashQuote(projectPath) }, bashQuote(projectPath));
+      const resolved = applyTemplate(
+        explorerTemplate,
+        { path: bashQuote(projectPath), projectFolder: bashQuote(projectPath) },
+        bashQuote(projectPath),
+      );
       await runDetachedShell(resolved);
       return;
     }
@@ -702,7 +713,7 @@ ipcMain.handle("git:run", async (_event, { projectPath, action, branch }) => {
 
 ipcMain.handle("command:run", async (_event, { projectPath, command, runInTerminal = true, appDefaults = {} }) => {
   try {
-    const cmd = String(command || "").trim();
+    const cmd = resolveProjectCommand(projectPath, command);
     if (!projectPath || !cmd) {
       return { ok: false, error: "Projektpfad oder Kommando fehlt." };
     }
