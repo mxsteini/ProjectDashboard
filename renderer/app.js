@@ -11,7 +11,7 @@ const state = {
     collapsedManagers: [],
     dashboardSettingsOpen: false,
     dashboardSettingsActiveWidget: "project",
-    dashboardSettingsActiveSubtab: "gridsetup",
+    dashboardSettingsActiveSubtab: "widget",
     dashboardLayouts: {},
   },
   collapsedCustomers: new Set(),
@@ -451,11 +451,10 @@ function closeAddWidgetModal() {
   el.addWidgetModal.classList.add("hidden");
 }
 
-async function openWidgetSettingsModal(widgetId = "project", subtab = "gridsetup") {
+async function openWidgetSettingsModal(widgetId = "project") {
   if (!state.selectedProjectEntry) return;
   state.uiState.dashboardSettingsOpen = true;
   state.uiState.dashboardSettingsActiveWidget = widgetId;
-  state.uiState.dashboardSettingsActiveSubtab = subtab;
   renderWidgetSettingsModal();
   el.widgetSettingsModal.classList.remove("hidden");
   await persistUiState();
@@ -465,13 +464,6 @@ async function closeWidgetSettingsModal() {
   state.uiState.dashboardSettingsOpen = false;
   el.widgetSettingsModal.classList.add("hidden");
   await persistUiState();
-}
-
-function widgetSettingTabs() {
-  return [
-    { id: "gridsetup", label: "Gridsetup" },
-    { id: "widget", label: "Widgeteinstellungen" },
-  ];
 }
 
 function renderWidgetSettingsModal() {
@@ -490,25 +482,21 @@ function renderWidgetSettingsModal() {
     activeWidgetId = defs[0]?.id || "project";
   }
   state.uiState.dashboardSettingsActiveWidget = activeWidgetId;
-
-  const tabs = widgetSettingTabs();
-  if (!tabs.some((item) => item.id === state.uiState.dashboardSettingsActiveSubtab)) {
-    state.uiState.dashboardSettingsActiveSubtab = "gridsetup";
+  const availableTabs = ["widget", "grid"];
+  if (!availableTabs.includes(state.uiState.dashboardSettingsActiveSubtab)) {
+    state.uiState.dashboardSettingsActiveSubtab = "widget";
   }
 
   el.widgetSettingsTitle.textContent = `${byId[activeWidgetId]?.title || activeWidgetId}`;
-  el.widgetSettingsTabBar.innerHTML = tabs
-    .map((tab) => {
-      const active = tab.id === state.uiState.dashboardSettingsActiveSubtab ? "active" : "";
-      return `<button class="widget-settings-tab ${active}" data-widget-subtab="${escapeHtml(tab.id)}">${escapeHtml(tab.label)}</button>`;
-    })
-    .join("");
-
-  const activeSubtab = state.uiState.dashboardSettingsActiveSubtab;
-  if (activeSubtab === "gridsetup") {
+  el.widgetSettingsTabBar.innerHTML = `
+    <button class="widget-settings-tab ${state.uiState.dashboardSettingsActiveSubtab === "widget" ? "active" : ""}" data-widget-subtab="widget">Widgeteinstellungen</button>
+    <button class="widget-settings-tab ${state.uiState.dashboardSettingsActiveSubtab === "grid" ? "active" : ""}" data-widget-subtab="grid">Gridsetup</button>
+  `;
+  const definition = byId[activeWidgetId];
+  const fn = layout.widgetFunctions[activeWidgetId] || {};
+  if (state.uiState.dashboardSettingsActiveSubtab === "grid") {
     const currentWidth = layout.widgets[activeWidgetId]?.colSpan || 2;
     const currentHeight = layout.widgets[activeWidgetId]?.rowSpan || 1;
-
     el.widgetSettingsContent.innerHTML = `
       <h3>Grid Einstellungen</h3>
       <p>Raster: <strong>6 Spalten</strong> (fix)</p>
@@ -517,225 +505,16 @@ function renderWidgetSettingsModal() {
       <label>Hoehe des Widgets (Zeilen)</label>
       <input type="number" min="1" max="12" id="gridHeightInput" value="${currentHeight}" />
       <div class="actions">
-        <button id="saveGridSettingsBtn" data-widget-id="${escapeHtml(activeWidgetId)}">Gridsetup speichern</button>
+        <button id="saveGlobalGridSettingsBtn" data-widget-id="${escapeHtml(activeWidgetId)}">Gridsetup speichern</button>
       </div>
     `;
   } else {
-    const widgetId = activeWidgetId;
-    const definition = byId[widgetId];
-    const fn = layout.widgetFunctions[widgetId] || {};
-    if (widgetId === "ddev") {
-      const buttons = normalizeDdevButtons(fn.buttons || fn);
-      const rows = buttons
-        .map((item, index) => `
-          <div class="config-block">
-            <label>Label</label>
-            <input data-ddev-label="${index}" value="${escapeHtml(item.label)}" />
-            <label>Befehl</label>
-            <input data-ddev-command="${index}" value="${escapeHtml(item.command)}" />
-            <label><input type="checkbox" data-ddev-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-            <button data-remove-ddev-btn="${index}" class="danger">Button entfernen</button>
-          </div>
-        `)
-        .join("");
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <p>Default: ddev status, ddev start, ddev stop, ddev restart (bearbeitbar)</p>
-        ${rows}
-        <div class="config-block">
-          <label>Neuer Button Label</label>
-          <input id="newDdevLabel" placeholder="z. B. ddev describe" />
-          <label>Neuer Befehl</label>
-          <input id="newDdevCommand" placeholder="ddev describe" />
-          <label><input type="checkbox" id="newDdevRunInTerminal" checked /> Im Terminal ausfuehren</label>
-          <button id="addDdevButtonBtn">Button hinzufuegen</button>
-        </div>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="ddev">Einstellungen speichern</button></div>
-      `;
-    } else if (widgetId === "git") {
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="gitAllowCheckout" type="checkbox" ${fn.allowCheckout ? "checked" : ""} /> Checkout Icon anzeigen</label>
-        <label><input id="gitAllowDelete" type="checkbox" ${fn.allowDelete !== false ? "checked" : ""} /> Delete Icon anzeigen</label>
-        <label><input id="gitShowCurrentBranch" type="checkbox" ${fn.showCurrentBranch ? "checked" : ""} /> Aktiven Branch markieren</label>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="git">Einstellungen speichern</button></div>
-      `;
-    } else if (widgetId === "npm") {
-      const buttons = normalizeNpmButtons(fn.buttons);
-      const rows = buttons
-        .map((item, index) => {
-          return `
-            <div class="config-block">
-              <label>Label</label>
-              <input data-npm-label="${index}" value="${escapeHtml(item.label)}" />
-              <label>Befehl</label>
-              <input data-npm-command="${index}" value="${escapeHtml(item.command)}" />
-              <label><input type="checkbox" data-npm-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-              <button data-remove-npm-btn="${index}" class="danger">Button entfernen</button>
-            </div>
-          `;
-        })
-        .join("");
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <p>Default: npm install, npm start (konfigurierbar)</p>
-        ${rows}
-        <div class="config-block">
-          <label>Neuer Button Label</label>
-          <input id="newNpmLabel" placeholder="z. B. npm test" />
-          <label>Neuer Befehl</label>
-          <input id="newNpmCommand" placeholder="npm test" />
-          <label><input type="checkbox" id="newNpmRunInTerminal" checked /> Im Terminal ausfuehren</label>
-          <button id="addNpmButtonBtn">Button hinzufuegen</button>
-        </div>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="npm">Einstellungen speichern</button></div>
-      `;
-    } else if (isCommandWidgetId(widgetId)) {
-      const commandFn = normalizeCommandWidgetSettings(fn);
-      const rows = commandFn.buttons
-        .map((item, index) => {
-          return `
-            <div class="config-block">
-              <label>Label</label>
-              <input data-command-label="${index}" value="${escapeHtml(item.label)}" />
-              <label>Befehl</label>
-              <input data-command-command="${index}" value="${escapeHtml(item.command)}" />
-              <label><input type="checkbox" data-command-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-              <button data-remove-command-btn="${index}" class="danger">Button entfernen</button>
-            </div>
-          `;
-        })
-        .join("");
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label>Widget Titel</label>
-        <input id="commandWidgetTitle" value="${escapeHtml(commandFn.title)}" placeholder="Command" />
-        ${rows}
-        <div class="config-block">
-          <label>Neuer Button Label</label>
-          <input id="newCommandLabel" placeholder="z. B. Build" />
-          <label>Neuer Befehl</label>
-          <input id="newCommandCommand" placeholder="npm run build" />
-          <label><input type="checkbox" id="newCommandRunInTerminal" checked /> Im Terminal ausfuehren</label>
-          <button id="addCommandButtonBtn">Button hinzufuegen</button>
-        </div>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
-      `;
-    } else if (isLauncherWidgetId(widgetId)) {
-      const launcherFn = normalizeLauncherWidgetSettings(fn);
-      const rows = launcherFn.buttons
-        .map((item, index) => {
-          return `
-            <div class="config-block">
-              <label>Label</label>
-              <input data-launcher-cmd-label="${index}" value="${escapeHtml(item.label)}" />
-              <label>Befehl</label>
-              <input data-launcher-cmd-command="${index}" value="${escapeHtml(item.command)}" />
-              <label><input type="checkbox" data-launcher-cmd-terminal="${index}" ${item.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-              <button data-remove-launcher-cmd="${index}" class="danger">Button entfernen</button>
-            </div>
-          `;
-        })
-        .join("");
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label>Widget Titel</label>
-        <input id="launcherWidgetTitle" value="${escapeHtml(launcherFn.title)}" placeholder="Launcher" />
-        ${rows}
-        <div class="config-block">
-          <label>Neuer Button Label</label>
-          <input id="newLauncherCmdLabel" placeholder="z. B. Build" />
-          <label>Neuer Befehl</label>
-          <input id="newLauncherCmdCommand" placeholder="npm run build" />
-          <label><input type="checkbox" id="newLauncherCmdRunInTerminal" checked /> Im Terminal ausfuehren</label>
-          <button id="addLauncherCmdButtonBtn">Button hinzufuegen</button>
-        </div>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
-      `;
-    } else if (widgetId === "filebrowser") {
-      const selectedProject = state.selectedProjectEntry.project;
-      const directories = getFilebrowserDirectories(fn, selectedProject.path);
-      const rows = directories
-        .map((dir, index) => {
-          const isProjectDir = index === 0;
-          const label = toProjectRelativeDisplayPath(dir, selectedProject.path);
-          const removeButton = isProjectDir
-            ? ""
-            : `<button data-remove-filebrowser-dir="${escapeHtml(dir)}">Entfernen</button>`;
-          return `
-            <div class="actions filebrowser-row">
-              <span>${escapeHtml(label)}</span>
-              ${removeButton}
-            </div>
-          `;
-        })
-        .join("");
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <p>Der Projektpfad steht immer als erstes in der Liste.</p>
-        <div class="actions">
-          <button id="addFilebrowserDirectoryBtn">Verzeichnis hinzufuegen</button>
-        </div>
-        <div class="filebrowser-list">${rows}</div>
-      `;
-    } else if (widgetId === "launcher") {
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="launcherAllowCursor" type="checkbox" ${fn.allowCursor ? "checked" : ""} /> Cursor Button</label>
-        <label><input id="launcherAllowVscode" type="checkbox" ${fn.allowVscode ? "checked" : ""} /> VS Code Button</label>
-        <label><input id="launcherAllowExplorer" type="checkbox" ${fn.allowExplorer ? "checked" : ""} /> Explorer Button</label>
-        <label><input id="launcherAllowTerminal" type="checkbox" ${fn.allowTerminal ? "checked" : ""} /> Terminal Button</label>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="launcher">Einstellungen speichern</button></div>
-      `;
-    } else if (widgetId === "ssh" || isSshWidgetId(widgetId)) {
-      const sshFn = normalizeSshWidgetSettings(fn);
-      const allHosts = Array.isArray(state.projectData?.sshHosts) ? state.projectData.sshHosts : [];
-      const rows = allHosts.length
-        ? allHosts
-            .map((entry) => {
-              const alias = String(entry.alias || "").trim();
-              if (!alias) return "";
-              const details = [entry.user ? `user: ${entry.user}` : "", entry.hostname ? `host: ${entry.hostname}` : "", entry.port ? `port: ${entry.port}` : ""]
-                .filter(Boolean)
-                .join(" · ");
-              const checked = sshFn.selectedHosts.includes(alias) ? "checked" : "";
-              const searchable = `${alias} ${entry.user || ""} ${entry.hostname || ""} ${entry.port || ""}`.toLowerCase();
-              return `
-                <label class="config-block" data-ssh-host-row="${escapeHtml(searchable)}">
-                  <input type="checkbox" data-ssh-select-host="${escapeHtml(alias)}" ${checked} />
-                  <strong>${escapeHtml(alias)}</strong>
-                  ${details ? `<span class="meta">${escapeHtml(details)}</span>` : ""}
-                </label>
-              `;
-            })
-            .join("")
-        : `<p class="status-warn">Keine Hosts in ~/.ssh/config gefunden.</p>`;
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label>Widget Titel</label>
-        <input id="sshWidgetTitle" value="${escapeHtml(sshFn.title)}" placeholder="Remote-Widget" />
-        <label><input id="sshShowHint" type="checkbox" ${sshFn.showHint ? "checked" : ""} /> Hinweistext anzeigen</label>
-        <label>Remote Kommando</label>
-        <input id="sshCommandTemplate" value="${escapeHtml(sshFn.commandTemplate)}" placeholder="ssh {host}" />
-        <label><input id="sshRunInTerminal" type="checkbox" ${sshFn.runInTerminal ? "checked" : ""} /> Im Terminal ausfuehren</label>
-        <p class="meta">Platzhalter: {host}, {user}, {hostname}, {port}, {projectFolder}</p>
-        <label>Hosts durchsuchen</label>
-        <input id="sshHostSearchInput" placeholder="Alias, User, Hostname..." />
-        <div class="filebrowser-list">${rows}</div>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="${escapeHtml(widgetId)}">Einstellungen speichern</button></div>
-      `;
-    } else if (widgetId === "browser") {
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <label><input id="browserShowSourceHint" type="checkbox" ${fn.showSourceHint ? "checked" : ""} /> Quellenhinweis anzeigen</label>
-        <div class="actions"><button id="saveWidgetSettingsBtn" data-widget-id="browser">Einstellungen speichern</button></div>
-      `;
-    } else {
-      el.widgetSettingsContent.innerHTML = `
-        <h3>${escapeHtml(definition?.title || widgetId)} Funktionen</h3>
-        <p>Keine zusaetzlichen Funktionsoptionen vorhanden.</p>
-      `;
-    }
+    el.widgetSettingsContent.innerHTML = window.ProjectDashboardWidgetConfiguration.render(
+      widgetConfigurationContext(),
+      activeWidgetId,
+      definition,
+      fn,
+    );
   }
 
   bindWidgetSettingsEvents();
@@ -743,14 +522,14 @@ function renderWidgetSettingsModal() {
 
 function bindWidgetSettingsEvents() {
   el.widgetSettingsTabBar.querySelectorAll("[data-widget-subtab]").forEach((node) => {
-    node.addEventListener("click", () => {
-      state.uiState.dashboardSettingsActiveSubtab = node.getAttribute("data-widget-subtab") || "gridsetup";
+    node.addEventListener("click", async () => {
+      state.uiState.dashboardSettingsActiveSubtab = node.getAttribute("data-widget-subtab") || "widget";
       renderWidgetSettingsModal();
-      persistUiState();
+      await persistUiState();
     });
   });
 
-  const saveGridButton = document.getElementById("saveGridSettingsBtn");
+  const saveGridButton = document.getElementById("saveGlobalGridSettingsBtn");
   if (saveGridButton) {
     saveGridButton.addEventListener("click", async () => {
       const layout = getProjectLayoutState();
@@ -776,304 +555,16 @@ function bindWidgetSettingsEvents() {
       if (!widgetId) return;
       const layout = getProjectLayoutState();
       const fn = layout.widgetFunctions[widgetId] || {};
-      if (widgetId === "ddev") {
-        const labels = Array.from(document.querySelectorAll("[data-ddev-label]"));
-        const commands = Array.from(document.querySelectorAll("[data-ddev-command]"));
-        const terminals = Array.from(document.querySelectorAll("[data-ddev-terminal]"));
-        const merged = labels.map((labelNode, index) => ({
-          id: `ddev_custom_${index}`,
-          label: String(labelNode.value || "").trim() || `ddev command ${index + 1}`,
-          command: String(commands[index]?.value || "").trim(),
-          runInTerminal: Boolean(terminals[index]?.checked),
-        }));
-        fn.buttons = normalizeDdevButtons(merged);
-      } else if (widgetId === "git") {
-        fn.allowCheckout = Boolean(document.getElementById("gitAllowCheckout")?.checked);
-        fn.allowDelete = Boolean(document.getElementById("gitAllowDelete")?.checked);
-        fn.showCurrentBranch = Boolean(document.getElementById("gitShowCurrentBranch")?.checked);
-      } else if (widgetId === "npm") {
-        const labels = Array.from(document.querySelectorAll("[data-npm-label]"));
-        const commands = Array.from(document.querySelectorAll("[data-npm-command]"));
-        const terminals = Array.from(document.querySelectorAll("[data-npm-terminal]"));
-        const merged = labels.map((labelNode, index) => ({
-          id: `npm_custom_${index}`,
-          label: String(labelNode.value || "").trim() || `npm command ${index + 1}`,
-          command: String(commands[index]?.value || "").trim(),
-          runInTerminal: Boolean(terminals[index]?.checked),
-        }));
-        fn.buttons = normalizeNpmButtons(merged);
-      } else if (isCommandWidgetId(widgetId)) {
-        const labels = Array.from(document.querySelectorAll("[data-command-label]"));
-        const commands = Array.from(document.querySelectorAll("[data-command-command]"));
-        const terminals = Array.from(document.querySelectorAll("[data-command-terminal]"));
-        const merged = labels.map((labelNode, index) => ({
-          id: `command_custom_${index}`,
-          label: String(labelNode.value || "").trim() || `Command ${index + 1}`,
-          command: String(commands[index]?.value || "").trim(),
-          runInTerminal: Boolean(terminals[index]?.checked),
-        }));
-        fn.title = String(document.getElementById("commandWidgetTitle")?.value || "").trim() || "Command";
-        fn.buttons = normalizeCommandButtons(merged);
-      } else if (isLauncherWidgetId(widgetId)) {
-        const labels = Array.from(document.querySelectorAll("[data-launcher-cmd-label]"));
-        const commands = Array.from(document.querySelectorAll("[data-launcher-cmd-command]"));
-        const terminals = Array.from(document.querySelectorAll("[data-launcher-cmd-terminal]"));
-        const merged = labels.map((labelNode, index) => ({
-          id: `launcher_custom_${index}`,
-          label: String(labelNode.value || "").trim() || `Launcher command ${index + 1}`,
-          command: String(commands[index]?.value || "").trim(),
-          runInTerminal: Boolean(terminals[index]?.checked),
-        }));
-        fn.title = String(document.getElementById("launcherWidgetTitle")?.value || "").trim() || "Launcher";
-        fn.buttons = normalizeCommandButtons(merged);
-      } else if (widgetId === "launcher") {
-        fn.allowCursor = Boolean(document.getElementById("launcherAllowCursor")?.checked);
-        fn.allowVscode = Boolean(document.getElementById("launcherAllowVscode")?.checked);
-        fn.allowExplorer = Boolean(document.getElementById("launcherAllowExplorer")?.checked);
-        fn.allowTerminal = Boolean(document.getElementById("launcherAllowTerminal")?.checked);
-      } else if (widgetId === "ssh" || isSshWidgetId(widgetId)) {
-        const sshFn = normalizeSshWidgetSettings(fn);
-        const selectedHosts = Array.from(document.querySelectorAll("[data-ssh-select-host]"))
-          .filter((node) => node.checked)
-          .map((node) => String(node.getAttribute("data-ssh-select-host") || "").trim())
-          .filter(Boolean);
-        sshFn.title = String(document.getElementById("sshWidgetTitle")?.value || "").trim() || "Remote-Widget";
-        sshFn.showHint = Boolean(document.getElementById("sshShowHint")?.checked);
-        sshFn.selectedHosts = selectedHosts;
-        sshFn.commandTemplate = String(document.getElementById("sshCommandTemplate")?.value || "").trim() || "ssh {host}";
-        sshFn.runInTerminal = Boolean(document.getElementById("sshRunInTerminal")?.checked);
-        layout.widgetFunctions[widgetId] = sshFn;
-      } else if (widgetId === "browser") {
-        fn.showSourceHint = Boolean(document.getElementById("browserShowSourceHint")?.checked);
-      }
-      if (!(widgetId === "ssh" || isSshWidgetId(widgetId))) {
-        layout.widgetFunctions[widgetId] = fn;
-      }
+      window.ProjectDashboardWidgetConfiguration.apply(widgetConfigurationContext(), widgetId, fn, layout);
       await persistUiState();
       renderWidgetSettingsModal();
       renderDashboard();
     });
   }
 
-  const addFilebrowserDirectoryBtn = document.getElementById("addFilebrowserDirectoryBtn");
-  if (addFilebrowserDirectoryBtn) {
-    addFilebrowserDirectoryBtn.addEventListener("click", async () => {
-      const selectedProject = state.selectedProjectEntry.project;
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.filebrowser || { directories: [] };
-      const startPath = selectedProject.path;
-      const result = await window.dashboardApi.pickDirectory({ startPath });
-      if (!result?.ok || !result.path) {
-        return;
-      }
-      const picked = String(result.path).trim();
-      if (!picked || picked === selectedProject.path) {
-        return;
-      }
-      const merged = getFilebrowserDirectories({ directories: fn.directories || [] }, selectedProject.path);
-      if (merged.includes(picked)) {
-        return;
-      }
-      fn.directories = [...(Array.isArray(fn.directories) ? fn.directories : []), picked];
-      layout.widgetFunctions.filebrowser = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
+  if (state.uiState.dashboardSettingsActiveSubtab === "widget") {
+    window.ProjectDashboardWidgetConfiguration.bindExtraEvents(widgetConfigurationContext());
   }
-
-  document.querySelectorAll("[data-remove-filebrowser-dir]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const target = button.getAttribute("data-remove-filebrowser-dir");
-      if (!target) return;
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.filebrowser || { directories: [] };
-      fn.directories = (Array.isArray(fn.directories) ? fn.directories : []).filter((dir) => dir !== target);
-      layout.widgetFunctions.filebrowser = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  });
-
-  const addCommandButtonBtn = document.getElementById("addCommandButtonBtn");
-  if (addCommandButtonBtn) {
-    addCommandButtonBtn.addEventListener("click", async () => {
-      const layout = getProjectLayoutState();
-      const widgetId = state.uiState.dashboardSettingsActiveWidget;
-      if (!isCommandWidgetId(widgetId)) return;
-      const fn = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
-      const label = String(document.getElementById("newCommandLabel")?.value || "").trim();
-      const command = String(document.getElementById("newCommandCommand")?.value || "").trim();
-      const runInTerminal = Boolean(document.getElementById("newCommandRunInTerminal")?.checked);
-      if (!command) return;
-      const current = normalizeCommandButtons(fn.buttons);
-      current.push({
-        id: `command_custom_${Date.now()}`,
-        label: label || command,
-        command,
-        runInTerminal,
-      });
-      fn.buttons = normalizeCommandButtons(current);
-      fn.title = String(document.getElementById("commandWidgetTitle")?.value || fn.title || "Command").trim() || "Command";
-      layout.widgetFunctions[widgetId] = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  }
-
-  document.querySelectorAll("[data-remove-command-btn]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const index = Number(button.getAttribute("data-remove-command-btn"));
-      if (!Number.isFinite(index)) return;
-      const layout = getProjectLayoutState();
-      const widgetId = state.uiState.dashboardSettingsActiveWidget;
-      if (!isCommandWidgetId(widgetId)) return;
-      const fn = normalizeCommandWidgetSettings(layout.widgetFunctions[widgetId]);
-      const current = normalizeCommandButtons(fn.buttons).filter((_, idx) => idx !== index);
-      fn.buttons = normalizeCommandButtons(current);
-      fn.title = String(document.getElementById("commandWidgetTitle")?.value || fn.title || "Command").trim() || "Command";
-      layout.widgetFunctions[widgetId] = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  });
-
-  const addLauncherCmdButtonBtn = document.getElementById("addLauncherCmdButtonBtn");
-  if (addLauncherCmdButtonBtn) {
-    addLauncherCmdButtonBtn.addEventListener("click", async () => {
-      const layout = getProjectLayoutState();
-      const widgetId = state.uiState.dashboardSettingsActiveWidget;
-      if (!isLauncherWidgetId(widgetId)) return;
-      const fn = normalizeLauncherWidgetSettings(layout.widgetFunctions[widgetId]);
-      const label = String(document.getElementById("newLauncherCmdLabel")?.value || "").trim();
-      const command = String(document.getElementById("newLauncherCmdCommand")?.value || "").trim();
-      const runInTerminal = Boolean(document.getElementById("newLauncherCmdRunInTerminal")?.checked);
-      if (!command) return;
-      const current = normalizeCommandButtons(fn.buttons);
-      current.push({
-        id: `launcher_custom_${Date.now()}`,
-        label: label || command,
-        command,
-        runInTerminal,
-      });
-      fn.buttons = normalizeCommandButtons(current);
-      fn.title = String(document.getElementById("launcherWidgetTitle")?.value || fn.title || "Launcher").trim() || "Launcher";
-      layout.widgetFunctions[widgetId] = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  }
-
-  document.querySelectorAll("[data-remove-launcher-cmd]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const index = Number(button.getAttribute("data-remove-launcher-cmd"));
-      if (!Number.isFinite(index)) return;
-      const layout = getProjectLayoutState();
-      const widgetId = state.uiState.dashboardSettingsActiveWidget;
-      if (!isLauncherWidgetId(widgetId)) return;
-      const fn = normalizeLauncherWidgetSettings(layout.widgetFunctions[widgetId]);
-      const current = normalizeCommandButtons(fn.buttons).filter((_, idx) => idx !== index);
-      fn.buttons = normalizeCommandButtons(current);
-      fn.title = String(document.getElementById("launcherWidgetTitle")?.value || fn.title || "Launcher").trim() || "Launcher";
-      layout.widgetFunctions[widgetId] = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  });
-
-  const sshHostSearchInput = document.getElementById("sshHostSearchInput");
-  if (sshHostSearchInput) {
-    sshHostSearchInput.addEventListener("input", () => {
-      const query = String(sshHostSearchInput.value || "").trim().toLowerCase();
-      document.querySelectorAll("[data-ssh-host-row]").forEach((row) => {
-        const haystack = String(row.getAttribute("data-ssh-host-row") || "");
-        row.style.display = !query || haystack.includes(query) ? "" : "none";
-      });
-    });
-  }
-
-  const addNpmButtonBtn = document.getElementById("addNpmButtonBtn");
-  if (addNpmButtonBtn) {
-    addNpmButtonBtn.addEventListener("click", async () => {
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.npm || { buttons: defaultNpmButtons() };
-      const label = String(document.getElementById("newNpmLabel")?.value || "").trim();
-      const command = String(document.getElementById("newNpmCommand")?.value || "").trim();
-      const runInTerminal = Boolean(document.getElementById("newNpmRunInTerminal")?.checked);
-      if (!command) return;
-      const current = normalizeNpmButtons(fn.buttons);
-      current.push({
-        id: `npm_custom_${Date.now()}`,
-        label: label || command,
-        command,
-        runInTerminal,
-      });
-      fn.buttons = normalizeNpmButtons(current);
-      layout.widgetFunctions.npm = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  }
-
-  document.querySelectorAll("[data-remove-npm-btn]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const index = Number(button.getAttribute("data-remove-npm-btn"));
-      if (!Number.isFinite(index)) return;
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.npm || { buttons: defaultNpmButtons() };
-      const current = normalizeNpmButtons(fn.buttons).filter((_, idx) => idx !== index);
-      fn.buttons = normalizeNpmButtons(current);
-      layout.widgetFunctions.npm = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  });
-
-  const addDdevButtonBtn = document.getElementById("addDdevButtonBtn");
-  if (addDdevButtonBtn) {
-    addDdevButtonBtn.addEventListener("click", async () => {
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.ddev || { buttons: defaultDdevButtons() };
-      const label = String(document.getElementById("newDdevLabel")?.value || "").trim();
-      const command = String(document.getElementById("newDdevCommand")?.value || "").trim();
-      const runInTerminal = Boolean(document.getElementById("newDdevRunInTerminal")?.checked);
-      if (!command) return;
-      const current = normalizeDdevButtons(fn.buttons || fn);
-      current.push({
-        id: `ddev_custom_${Date.now()}`,
-        label: label || command,
-        command,
-        runInTerminal,
-      });
-      fn.buttons = normalizeDdevButtons(current);
-      layout.widgetFunctions.ddev = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  }
-
-  document.querySelectorAll("[data-remove-ddev-btn]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const index = Number(button.getAttribute("data-remove-ddev-btn"));
-      if (!Number.isFinite(index)) return;
-      const layout = getProjectLayoutState();
-      const fn = layout.widgetFunctions.ddev || { buttons: defaultDdevButtons() };
-      const current = normalizeDdevButtons(fn.buttons || fn).filter((_, idx) => idx !== index);
-      fn.buttons = normalizeDdevButtons(current);
-      layout.widgetFunctions.ddev = fn;
-      await persistUiState();
-      renderWidgetSettingsModal();
-      renderDashboard();
-    });
-  });
 }
 
 function renderProjectList() {
@@ -1522,215 +1013,78 @@ function renderWidgetShell(widgetId, title, body, colSpan, rowSpan) {
   `;
 }
 
+function widgetContext() {
+  return {
+    state,
+    escapeHtml,
+    statusClass,
+    resolveWidgets,
+    getProjectLayoutState,
+    baseWidgetFunctionSettings,
+    normalizeDdevButtons,
+    normalizeNpmButtons,
+    normalizeCommandButtons,
+    normalizeSshWidgetSettings,
+    getFilebrowserDirectories,
+    toProjectRelativeDisplayPath,
+  };
+}
+
+function widgetConfigurationContext() {
+  return {
+    ...widgetContext(),
+    state,
+    isCommandWidgetId,
+    isLauncherWidgetId,
+    isSshWidgetId,
+    normalizeCommandWidgetSettings,
+    normalizeLauncherWidgetSettings,
+    defaultNpmButtons,
+    defaultDdevButtons,
+    persistUiState,
+    renderWidgetSettingsModal,
+    renderDashboard,
+  };
+}
+
 function renderDdevBody(fn) {
-  const ddev = state.projectData?.ddevStatus;
-  const out = ddev?.stdout || ddev?.stderr || "Keine Ausgabe.";
-  const cls = statusClass(Boolean(ddev?.ok));
-  const buttons = normalizeDdevButtons(fn?.buttons || fn)
-    .map((item) => `<button data-ddev-run="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>`)
-    .join("");
-  return `
-    <p class="${cls}">${ddev?.ok ? "Status abrufbar" : "DDEV nicht verfuegbar oder Projekt nicht initialisiert"}</p>
-    <div class="actions">${buttons || `<span class="status-warn">Keine DDEV Aktionen aktiv.</span>`}</div>
-    <pre>${escapeHtml(out)}</pre>
-  `;
+  return window.ProjectDashboardWidgetRenderers.ddev(widgetContext(), fn);
 }
 
 function renderDiskBody() {
-  const disk = state.projectData?.diskUsage;
-  return `
-    <p class="${statusClass(Boolean(disk?.ok))}">
-      ${disk?.ok ? `Projektgroesse: ${escapeHtml(disk.size)}` : escapeHtml(disk?.message || "n/a")}
-    </p>
-  `;
+  return window.ProjectDashboardWidgetRenderers.disk(widgetContext());
 }
 
 function renderGitBody(fn) {
-  const git = state.projectData?.gitInfo;
-  const cls = statusClass(Boolean(git?.ok));
-  if (!git?.ok) {
-    return `<p class="${cls}">${escapeHtml(git?.message || "Kein Git-Repository.")}</p>`;
-  }
-
-  const branches = Array.isArray(git.branches) ? git.branches : [];
-  if (!branches.length) {
-    return `<p class="status-warn">Keine lokalen Branches gefunden.</p>`;
-  }
-
-  const rows = branches
-    .map((branch) => {
-      const isCurrent = branch === git.currentBranch;
-      const label = fn.showCurrentBranch && isCurrent ? `${branch} (aktiv)` : branch;
-      const checkout = fn.allowCheckout
-        ? `
-          <button class="git-icon-btn" data-git-checkout="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""} aria-label="Branch auschecken" title="Checkout">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M10 4a1 1 0 0 1 1 1v5h7a1 1 0 1 1 0 2h-7v5a1 1 0 0 1-1.7.7l-6-6a1 1 0 0 1 0-1.4l6-6A1 1 0 0 1 10 4Z"/>
-            </svg>
-          </button>
-        `
-        : "";
-      const remove = fn.allowDelete !== false
-        ? `
-          <button class="git-icon-btn danger" data-git-delete="${escapeHtml(branch)}" ${isCurrent ? "disabled" : ""} aria-label="Branch loeschen" title="Delete">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M9 3a2 2 0 0 0-2 2v1H4a1 1 0 1 0 0 2h1l1 11a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-11h1a1 1 0 1 0 0-2h-3V5a2 2 0 0 0-2-2H9Zm0 3V5h6v1H9Zm1 4a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Z"/>
-            </svg>
-          </button>
-        `
-        : "";
-      return `
-        <div class="actions git-branch-row">
-          ${checkout}${remove}
-          <span class="${isCurrent ? "status-ok" : ""}">${escapeHtml(label)}</span>
-        </div>
-      `;
-    })
-    .join("");
-
-  return `
-    <p class="${cls}">Lokale Branches</p>
-    <div class="git-branch-list">${rows}</div>
-  `;
+  return window.ProjectDashboardWidgetRenderers.git(widgetContext(), fn);
 }
 
 function renderNpmBody(fn) {
-  const buttons = normalizeNpmButtons(fn?.buttons);
-  const rows = buttons
-    .map((item) => {
-      const mode = item.runInTerminal ? "Terminal" : "Inline";
-      return `
-        <div class="actions npm-row">
-          <button data-npm-run="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
-          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
-        </div>
-      `;
-    })
-    .join("");
-  return `<div class="git-branch-list">${rows}</div>`;
+  return window.ProjectDashboardWidgetRenderers.npm(widgetContext(), fn);
 }
 
 function renderCommandBody(widgetId, fn) {
-  const buttons = normalizeCommandButtons(fn?.buttons);
-  if (!buttons.length) {
-    return `<p class="status-warn">Keine Befehle konfiguriert.</p>`;
-  }
-  const rows = buttons
-    .map((item) => {
-      const mode = item.runInTerminal ? "Terminal" : "Inline";
-      return `
-        <div class="actions npm-row">
-          <button data-command-widget="${escapeHtml(widgetId)}" data-command-btn="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
-          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
-        </div>
-      `;
-    })
-    .join("");
-  return `<div class="git-branch-list">${rows}</div>`;
+  return window.ProjectDashboardWidgetRenderers.command(widgetContext(), widgetId, fn);
 }
 
 function renderLauncherCommandBody(widgetId, fn) {
-  const buttons = normalizeCommandButtons(fn?.buttons);
-  if (!buttons.length) {
-    return `<p class="status-warn">Keine Befehle konfiguriert.</p>`;
-  }
-  const rows = buttons
-    .map((item) => {
-      const mode = item.runInTerminal ? "Terminal" : "Inline";
-      return `
-        <div class="actions npm-row">
-          <button data-launcher-widget="${escapeHtml(widgetId)}" data-launcher-btn="${escapeHtml(item.id)}">${escapeHtml(item.label)}</button>
-          <span class="meta">${escapeHtml(mode)} · ${escapeHtml(item.command)}</span>
-        </div>
-      `;
-    })
-    .join("");
-  return `<div class="git-branch-list">${rows}</div>`;
+  return window.ProjectDashboardWidgetRenderers.launcherCustom(widgetContext(), widgetId, fn);
 }
 
 function renderFilebrowserBody(fn) {
-  const selectedProject = state.selectedProjectEntry.project;
-  const directories = getFilebrowserDirectories(fn, selectedProject.path);
-  if (!directories.length) {
-    return `<p class="status-warn">Keine Verzeichnisse konfiguriert.</p>`;
-  }
-
-  const rows = directories
-    .map((dir, index) => {
-      const label = toProjectRelativeDisplayPath(dir, selectedProject.path);
-      return `
-        <div class="filebrowser-row">
-          <button class="filebrowser-open-icon-btn" data-open-path="${escapeHtml(dir)}" aria-label="Verzeichnis oeffnen" title="Verzeichnis oeffnen">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M10 4a2 2 0 0 1 1.4.6l1.2 1.2c.2.2.5.2.7.2H18a2 2 0 0 1 2 2v1h-2V8h-4.7a3 3 0 0 1-2.1-.9L10 5.9V6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h5v2H6a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4h4Zm8.7 8.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-2.6 2.6a1 1 0 1 1-1.4-1.4l.9-.9H14a1 1 0 1 1 0-2h5.6l-.9-.9a1 1 0 0 1 0-1.4Z"/>
-            </svg>
-          </button>
-          <span class="filebrowser-path" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-        </div>
-      `;
-    })
-    .join("");
-
-  return `<div class="filebrowser-list">${rows}</div>`;
+  return window.ProjectDashboardWidgetRenderers.filebrowser(widgetContext(), fn);
 }
 
 function renderLauncherBody(fn) {
-  const buttons = [];
-  if (fn.allowCursor) buttons.push(`<button data-launcher="cursor">Cursor</button>`);
-  if (fn.allowVscode) buttons.push(`<button data-launcher="vscode">VS Code</button>`);
-  if (fn.allowExplorer) buttons.push(`<button data-launcher="explorer">Explorer</button>`);
-  if (fn.allowTerminal) buttons.push(`<button data-launcher="terminal">Terminal</button>`);
-  return `
-    <div class="actions">${buttons.join("") || `<span class="status-warn">Keine Launcher Aktionen aktiv.</span>`}</div>
-    <p class="meta">Startet Programme im Projektkontext.</p>
-  `;
+  return window.ProjectDashboardWidgetRenderers.launcher(widgetContext(), fn);
 }
 
 function renderSshBody(widgetId, fn) {
-  const sshFn = normalizeSshWidgetSettings(fn);
-  const allHosts = Array.isArray(state.projectData?.sshHosts) ? state.projectData.sshHosts : [];
-  if (!allHosts.length) {
-    return `<p class="status-warn">Keine Hosts in ~/.ssh/config gefunden.</p>`;
-  }
-
-  const hostMap = new Map(allHosts.map((entry) => [entry.alias, entry]));
-  const selected = sshFn.selectedHosts
-    .map((alias) => hostMap.get(alias))
-    .filter(Boolean);
-  if (!selected.length) {
-    return `<p class="status-warn">Keine Hosts ausgewaehlt.</p>`;
-  }
-
-  const buttons = selected
-    .map((entry) => {
-      const subtitle = [entry.user, entry.hostname].filter(Boolean).join("@");
-      return `
-        <div class="actions npm-row">
-          <button data-ssh-run="${escapeHtml(widgetId)}" data-ssh-host="${escapeHtml(entry.alias)}">${escapeHtml(entry.alias)}</button>
-          ${subtitle ? `<span class="meta">${escapeHtml(subtitle)}</span>` : ""}
-        </div>
-      `;
-    })
-    .join("");
-
-  return `
-    <div class="git-branch-list">${buttons}</div>
-    ${sshFn.showHint ? `<p class="meta">Hinweis: Passwoerter werden nicht automatisiert uebergeben.</p>` : ""}
-  `;
+  return window.ProjectDashboardWidgetRenderers.remote(widgetContext(), widgetId, fn);
 }
 
 function renderBrowserBody(fn) {
-  const urls = state.projectData?.urls || [];
-  if (urls.length === 0) {
-    return `<p class="status-warn">Keine URLs gefunden.</p>`;
-  }
-  const buttons = urls
-    .map((url, idx) => `<button data-url="${idx}">${escapeHtml(url)}</button>`)
-    .join("");
-  return `
-    <div class="actions">${buttons}</div>
-    ${fn.showSourceHint ? `<p class="meta">URLs aus .ddev/config.yaml und config/sites/**/*.yaml</p>` : ""}
-  `;
+  return window.ProjectDashboardWidgetRenderers.browser(widgetContext(), fn);
 }
 
 function getWidgetDefinitions() {
@@ -1740,21 +1094,13 @@ function getWidgetDefinitions() {
   const widgets = resolveWidgets(project);
   const layout = getProjectLayoutState();
   const fn = layout?.widgetFunctions || baseWidgetFunctionSettings();
+  const ctx = widgetContext();
   const staticDefs = [
     {
       id: "project",
       title: "Projekt",
       available: true,
-      body: `
-        <p><strong>${escapeHtml(project.name)}</strong></p>
-        <p>Kunde: ${escapeHtml(selected.customerName)}</p>
-        <p>Projektmanager: ${escapeHtml(selected.managerName)}</p>
-        ${fn.project?.showPath ? `<p>Pfad: ${escapeHtml(project.path)}</p>` : ""}
-        <div class="actions">
-          <button id="refreshDashboard">Aktualisieren</button>
-          <button id="openWidgetSettingsBtn">Dashboard Settings</button>
-        </div>
-      `,
+      body: window.ProjectDashboardWidgetRenderers.project(ctx),
     },
     { id: "ddev", title: "DDEV", available: Boolean(widgets.ddev), body: renderDdevBody(fn.ddev || {}) },
     { id: "disk", title: "Disk Usage", available: Boolean(widgets.diskUsage), body: renderDiskBody() },
@@ -2112,16 +1458,16 @@ function bindDashboardEvents() {
     refresh.addEventListener("click", () => refreshProject());
   }
 
-  const openSettings = document.getElementById("openWidgetSettingsBtn");
+  const openSettings = document.getElementById("openGridSettingsBtn");
   if (openSettings) {
-    openSettings.addEventListener("click", () => openWidgetSettingsModal("project", "gridsetup"));
+    openSettings.addEventListener("click", () => openWidgetSettingsModal("project"));
   }
 
   document.querySelectorAll("[data-open-widget-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const widgetId = button.getAttribute("data-open-widget-tab");
       if (!widgetId) return;
-      openWidgetSettingsModal(widgetId, "gridsetup");
+      openWidgetSettingsModal(widgetId);
     });
   });
 
